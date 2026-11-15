@@ -19,7 +19,7 @@ namespace AssetPreparation
             Directory.CreateDirectory(output);string receipt=Path.Combine(output,"generated-compute-map.txt");
             if(File.Exists(receipt)&&File.ReadAllText(receipt)==selectedHash&&File.Exists(Path.Combine(output,"catalog.txt"))&&lines.Skip(1).All(l=>File.Exists(Path.Combine(output,l.Split('\t')[0]+".compute"))))return;
             var catalog=new StringBuilder("SPIDER-COMPUTE-CATALOG-1\n");int done=0;
-            using(var f=File.OpenRead(executable))foreach(string line in lines.Skip(1))
+            using(var f=Bytes.OpenRead(executable))foreach(string line in lines.Skip(1))
             {
                 cancel.ThrowIfCancellationRequested();var parts=line.Split('\t');Bytes.Require(parts.Length==3&&Bytes.IsHash(parts[0]),"Compute reference invalid");
                 long offset=long.Parse(parts[1],NumberStyles.None,CultureInfo.InvariantCulture);int size=int.Parse(parts[2],NumberStyles.None,CultureInfo.InvariantCulture);
@@ -28,7 +28,7 @@ namespace AssetPreparation
                 byte[] body;using(var m=new MemoryStream())using(var w=new BinaryWriter(m)){w.Write(1);w.Write(root.Length);w.Write(root);w.Write(code.Length);w.Write(code);w.Write(0);w.Write(0);body=m.ToArray();}
                 string key=Bytes.Hash(body);byte[] record;using(var m=new MemoryStream())using(var w=new BinaryWriter(m)){w.Write(0x31435053u);w.Write(1);w.Write(0);w.Write(body.Length);for(int i=0;i<64;i+=2)w.Write(byte.Parse(key.Substring(i,2),NumberStyles.HexNumber,CultureInfo.InvariantCulture));w.Write(body);record=m.ToArray();}
                 string name=parts[0]+".compute",path=Path.Combine(output,name);if(!File.Exists(path)){string temp=path+".partial";using(var o=new FileStream(temp,FileMode.Create,FileAccess.Write,FileShare.None)){o.Write(record,0,record.Length);o.Flush(true);}File.Move(temp,path);}
-                Bytes.Require(new FileInfo(path).Length==record.Length&&Bytes.FileHash(path)==Bytes.Hash(record),"Existing compute recipe differs");catalog.Append(parts[0]).Append(' ').Append(Bytes.Hash(record)).Append(' ').Append(record.Length).Append('\n');
+                Bytes.Require(Bytes.Length(path)==record.Length&&Bytes.FileHash(path)==Bytes.Hash(record),"Existing compute recipe differs");catalog.Append(parts[0]).Append(' ').Append(Bytes.Hash(record)).Append(' ').Append(record.Length).Append('\n');
                 if(++done%100==0||done==Count)progress?.Invoke("Building compute preparation "+done+" / "+Count);
             }
             cancel.ThrowIfCancellationRequested();File.WriteAllText(Path.Combine(output,"catalog.txt"),catalog.ToString(),new UTF8Encoding(false));File.WriteAllText(receipt,selectedHash);

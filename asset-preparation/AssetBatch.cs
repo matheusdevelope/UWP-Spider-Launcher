@@ -30,13 +30,13 @@ namespace AssetPreparation
         }
         static void NoLinks(string path,string trustedRoot=null)
         {
-            CheckPathLinks(path,trustedRoot,p=>Directory.Exists(p)||File.Exists(p)?(FileAttributes?)File.GetAttributes(p):null);
+            CheckPathLinks(path,trustedRoot,Bytes.TryAttributes);
         }
         public static void Verify(string path,bool index,long length,string expected,CancellationToken cancel)
         {
             using(var hash=SHA256.Create()) {
                 if(index) {
-                    using(var f=File.OpenRead(path)) {
+                    using(var f=Bytes.OpenRead(path)) {
                         byte[] h=Bytes.Read(f,10);Bytes.Require(Bytes.U32(h,0)==0x77af12af&&Bytes.U32(h,4)==length&&h[8]==0x78&&((h[8]<<8)+h[9])%31==0&&(h[9]&32)==0,"Generated index header mismatch");
                         using(var z=new DeflateStream(f,CompressionMode.Decompress)) { long left=length;while(left>0) { cancel.ThrowIfCancellationRequested();byte[] b=Bytes.Read(z,(int)Math.Min(1048576,left));hash.TransformBlock(b,0,b.Length,b,0);left-=b.Length; }Bytes.Require(z.ReadByte()==-1,"Generated index exceeds expected size"); }
                     }
@@ -66,20 +66,20 @@ namespace AssetPreparation
                 var r=line.Split('\t');Bytes.Require(r.Length==5&&(r[0]=="ARCHIVE"||r[0]=="INDEX")&&(!foundIndex||r[0]=="INDEX"),"Invalid generation order");Name(r[1]);Name(r[2]);Bytes.Require(names.Add(r[1])&&Bytes.IsHash(r[4]),"Duplicate or invalid generated file");
                 long size=long.Parse(r[3],CultureInfo.InvariantCulture);Bytes.Require(size>0&&size<uint.MaxValue,"Invalid decoded size");
                 if(r[0]=="INDEX") { Bytes.Require((r[1]=="toc"||r[1]=="runtime-toc")&&size<=64*1024*1024,"Invalid index");foundIndex=true; }else Bytes.Require(r[1].StartsWith("local_",StringComparison.Ordinal)&&r[1].EndsWith(".dsar",StringComparison.Ordinal),"Invalid archive filename");
-                string target=Path.Combine(output,r[1]);NoLinks(target);NoLinks(target+".partial");NoLinks(Path.Combine(recipes,r[2]),recipeMount);if(!File.Exists(target))space=checked(space+size);rows.Add(r);
+                string target=Path.Combine(output,r[1]);NoLinks(target);NoLinks(target+".partial");NoLinks(Path.Combine(recipes,r[2]),recipeMount);if(!Bytes.FileAvailable(target))space=checked(space+size);rows.Add(r);
             }
-            Bytes.Require(foundIndex,"Missing generated index");Directory.CreateDirectory(output);Bytes.Require(DiskSpace.Available(output)>space+128L*1024*1024,"Insufficient space to generate assets");
+            Bytes.Require(foundIndex,"Missing generated index");Bytes.EnsureFolder(output);Bytes.Require(DiskSpace.Available(output)>space+128L*1024*1024,"Insufficient space to generate assets");
             var result=new List<GeneratedFile>();int done=0;
             foreach(var r in rows) {
                 cancel.ThrowIfCancellationRequested();string target=Path.Combine(output,r[1]);bool index=r[0]=="INDEX";long size=long.Parse(r[3],CultureInfo.InvariantCulture);
                 progress?.Invoke("Preparing assets "+(++done)+" / "+rows.Count+": "+r[1]);
-                if(!File.Exists(target)) {
+                if(!Bytes.FileAvailable(target)) {
                     // A validated basename under this task-owned directory only.
-                    if(File.Exists(target+".partial"))File.Delete(target+".partial");
+                    Bytes.DeleteIfExists(target+".partial");
                     if(index)AssetIndex.Run(originalIndex,Path.Combine(recipes,r[2]),target);
                     else Generate.Run(source,Path.Combine(recipes,r[2]),target,cancel,(n,total)=>progress?.Invoke("Preparing assets "+done+" / "+rows.Count+": "+n+" / "+total),originalIndex);
                 }
-                Verify(target,index,size,r[4],cancel);result.Add(new GeneratedFile{Name=r[1],Size=new FileInfo(target).Length,Hash=Bytes.FileHash(target)});
+                Verify(target,index,size,r[4],cancel);result.Add(new GeneratedFile{Name=r[1],Size=Bytes.Length(target),Hash=Bytes.FileHash(target)});
             }
             return result;
         }

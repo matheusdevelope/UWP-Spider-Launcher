@@ -16,12 +16,12 @@ namespace AssetPreparation
             original=Path.GetFullPath(original);output=Path.GetFullPath(output);
             string inputRoot=Path.GetDirectoryName(original).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;
             Bytes.Require(!output.StartsWith(inputRoot,StringComparison.OrdinalIgnoreCase),"Index output must be outside source folder");
-            Bytes.Require(!File.Exists(output)&&!File.Exists(output+".partial"),"Index output exists");
+            Bytes.Require(!Bytes.FileAvailable(output)&&!Bytes.FileAvailable(output+".partial"),"Index output exists");
             string[] lines=File.ReadAllLines(recipe);Bytes.Require(lines.Length>1&&lines.Length<=100001,"Invalid index recipe size");
             string[] header=lines[0].Split('\t');Bytes.Require(header.Length==3&&header[0]=="ASSETGEN_TOC_V1"&&Bytes.IsHash(header[1])&&Bytes.IsHash(header[2]),"Invalid index recipe");
             Bytes.Require(Bytes.FileHash(original)==header[1],"Wrong original index");
             byte[] raw;
-            using(var f=File.OpenRead(original)) {
+            using(var f=Bytes.OpenRead(original)) {
                 byte[] h=Bytes.Read(f,10);int size=checked((int)Bytes.U32(h,4));
                 Bytes.Require(Bytes.U32(h,0)==0x77af12af&&size>16&&size<=64*1024*1024&&h[8]==0x78&&((h[8]<<8)+h[9])%31==0&&(h[9]&32)==0,"Invalid compressed index header");
                 using(var inflate=new DeflateStream(f,CompressionMode.Decompress)) { raw=Bytes.Read(inflate,size);Bytes.Require(inflate.ReadByte()==-1,"Unexpected index expansion"); }
@@ -51,14 +51,14 @@ namespace AssetPreparation
             Bytes.Put32(result,8,result.Length);Bytes.Put32(result,archives.Item3+8,archives.Item2+72*added.Count);
             foreach(int[] r in changes) { Bytes.Put32(result,offsets.Item1+8*r[0],r[1]);Bytes.Put32(result,offsets.Item1+8*r[0]+4,r[2]);Bytes.Put32(result,sizes.Item1+12*r[0]+4,r[3]); }
             Bytes.Require(Bytes.Hash(result)==header[2],"Generated index differs from reference");
-            Directory.CreateDirectory(Path.GetDirectoryName(output));
-            using(var f=new FileStream(output+".partial",FileMode.CreateNew,FileAccess.Write,FileShare.None)) {
+            Bytes.EnsureFolder(Path.GetDirectoryName(output));
+            using(var f=Bytes.CreateNew(output+".partial",FileAccess.Write)) {
                 var writer=new BinaryWriter(f,Encoding.UTF8,true);writer.Write(0x77af12afu);writer.Write(result.Length);writer.Write((byte)0x78);writer.Write((byte)0x9c);
                 using(var deflate=new DeflateStream(f,CompressionLevel.Optimal,true))deflate.Write(result,0,result.Length);
                 uint a=1,b=0;foreach(byte value in result) { a=(a+value)%65521;b=(b+a)%65521; }uint adler=(b<<16)|a;
-                writer.Write((byte)(adler>>24));writer.Write((byte)(adler>>16));writer.Write((byte)(adler>>8));writer.Write((byte)adler);f.Flush(true);
+                writer.Write((byte)(adler>>24));writer.Write((byte)(adler>>16));writer.Write((byte)(adler>>8));writer.Write((byte)adler);Bytes.Flush(f);
             }
-            File.Move(output+".partial",output);
+            Bytes.MoveReplace(output+".partial",output);
         }
     }
 }

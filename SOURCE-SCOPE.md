@@ -6,6 +6,7 @@ Included:
 - Preparation orchestration, storage management, converter source, and numeric reconstruction metadata.
 - An authored, version-checked map-UI transformation for the fast-travel tutorial. It derives the corrected asset locally from owned files; it does not contain the original UI, a decompiled class, or generated game assets.
 - Build scripts, dependency pins, upstream license texts, attribution, and user documentation.
+- Launcher-owned SSD in-place storage adapters (`native/SpShellBridge.cpp` and the SpArgs40 proxy). These wrap the separately supplied runtime DLLs; they are not the compatibility runtime.
 - Exact supported-version identities and shader-location maps. These contain hashes, ranges, and graphics-state metadata, not shader programs.
 
 Excluded:

@@ -12,6 +12,8 @@
 #include <mutex>
 #include <functional>
 #include <cstring>
+#include <vector>
+#include <winioctl.h>
 #include "DxbcConverter.h"
 using Microsoft::WRL::ComPtr;
 namespace {
@@ -119,4 +121,106 @@ extern "C" __declspec(dllexport) HRESULT WINAPI ConvertOwnedCompression(LPCWSTR 
         if(shader->GetBufferSize()>capacity)throw HRESULT_FROM_WIN32(ERROR_INSUFFICIENT_BUFFER);
         memcpy(output,shader->GetBufferPointer(),shader->GetBufferSize());*written=static_cast<UINT32>(shader->GetBufferSize());return S_OK;
     }catch(HRESULT hr){return hr;}catch(const std::bad_alloc&){return E_OUTOFMEMORY;}catch(...){return E_INVALIDARG;}
+}
+static HMODULE FromAppModule(){
+    HMODULE module=LoadLibraryExW(L"api-ms-win-core-file-fromapp-l1-1-0.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+    if(module)return module;
+    return LoadLibraryExW(L"api-ms-win-core-file-fromapp-l1-1-1.dll",nullptr,LOAD_LIBRARY_SEARCH_SYSTEM32);
+}
+extern "C" __declspec(dllexport) BOOL WINAPI CreateDirectoryFromAppCompat(LPCWSTR path){
+    if(!path||!*path)return FALSE;
+    HMODULE module=FromAppModule();
+    if(!module)return FALSE;
+    auto fn=reinterpret_cast<BOOL (WINAPI*)(LPCWSTR,LPSECURITY_ATTRIBUTES)>(GetProcAddress(module,"CreateDirectoryFromAppW"));
+    return fn?fn(path,nullptr):FALSE;
+}
+extern "C" __declspec(dllexport) BOOL WINAPI RemoveDirectoryFromAppCompat(LPCWSTR path){
+    if(!path||!*path)return FALSE;
+    HMODULE module=FromAppModule();
+    if(!module)return FALSE;
+    auto fn=reinterpret_cast<BOOL (WINAPI*)(LPCWSTR)>(GetProcAddress(module,"RemoveDirectoryFromAppW"));
+    return fn?fn(path):FALSE;
+}
+static std::wstring TrimDir(LPCWSTR path){
+    std::wstring value(path);
+    while(value.size()>3&&(value.back()==L'\\'||value.back()==L'/'))value.pop_back();
+    return value;
+}
+static std::wstring NtTarget(LPCWSTR path){
+    std::wstring value=TrimDir(path);
+    if(value.rfind(L"\\\\?\\",0)==0)value=value.substr(4);
+    if(value.rfind(L"\\??\\",0)==0)return value;
+    return L"\\??\\"+value;
+}
+static HANDLE OpenDirectoryForReparse(LPCWSTR path){
+    HANDLE file=CreateFileW(path,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+        nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+    if(file!=INVALID_HANDLE_VALUE)return file;
+    HMODULE module=FromAppModule();
+    if(!module)return INVALID_HANDLE_VALUE;
+    auto fn=reinterpret_cast<HANDLE (WINAPI*)(LPCWSTR,DWORD,DWORD,DWORD,void*)>(GetProcAddress(module,"CreateFile2FromAppW"));
+    if(!fn)return INVALID_HANDLE_VALUE;
+    CREATEFILE2_EXTENDED_PARAMETERS extra{};
+    extra.dwSize=sizeof(extra);
+    extra.dwFileAttributes=FILE_ATTRIBUTE_DIRECTORY;
+    extra.dwFileFlags=FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT;
+    return fn(path,GENERIC_READ|GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,OPEN_EXISTING,&extra);
+}
+// Write the reparse on the D: host folder only. CreateSymbolicLinkFromAppW
+// stats the SSD target and returns error 5 on Xbox removable volumes.
+static BOOLEAN WriteDirectoryReparse(LPCWSTR link,LPCWSTR target,bool junction){
+    std::wstring nt=NtTarget(target),print=TrimDir(target);
+    if(nt.empty()||print.empty()){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+    const size_t subChars=nt.size()+1,printChars=print.size()+1;
+    const size_t header=junction?8u:12u;
+    const size_t data=header+(subChars+printChars)*sizeof(WCHAR);
+    std::vector<BYTE> raw(8+data);
+    *reinterpret_cast<ULONG*>(raw.data())=junction?IO_REPARSE_TAG_MOUNT_POINT:IO_REPARSE_TAG_SYMLINK;
+    *reinterpret_cast<USHORT*>(raw.data()+4)=static_cast<USHORT>(data);
+    BYTE* body=raw.data()+8;
+    *reinterpret_cast<USHORT*>(body+0)=0;
+    *reinterpret_cast<USHORT*>(body+2)=static_cast<USHORT>(nt.size()*sizeof(WCHAR));
+    *reinterpret_cast<USHORT*>(body+4)=static_cast<USHORT>(subChars*sizeof(WCHAR));
+    *reinterpret_cast<USHORT*>(body+6)=static_cast<USHORT>(print.size()*sizeof(WCHAR));
+    WCHAR* paths;
+    if(junction)paths=reinterpret_cast<WCHAR*>(body+8);
+    else{*reinterpret_cast<ULONG*>(body+8)=0;paths=reinterpret_cast<WCHAR*>(body+12);}
+    memcpy(paths,nt.c_str(),subChars*sizeof(WCHAR));
+    memcpy(paths+subChars,print.c_str(),printChars*sizeof(WCHAR));
+    BOOL created=CreateDirectoryW(link,nullptr);
+    if(!created&&GetLastError()!=ERROR_ALREADY_EXISTS)created=CreateDirectoryFromAppCompat(link);
+    HANDLE file=OpenDirectoryForReparse(link);
+    if(file==INVALID_HANDLE_VALUE){
+        DWORD err=GetLastError();
+        if(created){RemoveDirectoryW(link);RemoveDirectoryFromAppCompat(link);}
+        SetLastError(err?err:ERROR_ACCESS_DENIED);return FALSE;
+    }
+    DWORD returned=0;
+    BOOL ok=DeviceIoControl(file,FSCTL_SET_REPARSE_POINT,raw.data(),static_cast<DWORD>(raw.size()),nullptr,0,&returned,nullptr);
+    DWORD err=GetLastError();
+    CloseHandle(file);
+    if(ok)return TRUE;
+    if(created){RemoveDirectoryW(link);RemoveDirectoryFromAppCompat(link);}
+    SetLastError(err?err:ERROR_ACCESS_DENIED);return FALSE;
+}
+extern "C" __declspec(dllexport) BOOLEAN WINAPI CreateDirectoryLinkCompat(LPCWSTR link,LPCWSTR target,DWORD flags){
+    if(!link||!*link||!target||!*target){SetLastError(ERROR_INVALID_PARAMETER);return FALSE;}
+    DWORD last=ERROR_PRIVILEGE_NOT_HELD;
+    if(WriteDirectoryReparse(link,target,true)||WriteDirectoryReparse(link,target,false))return TRUE;
+    last=GetLastError();
+    using Link=BOOLEAN (WINAPI*)(LPCWSTR,LPCWSTR,DWORD);
+    auto tryLink=[&](HMODULE module,LPCSTR name)->BOOLEAN{
+        if(!module)return FALSE;
+        auto fn=reinterpret_cast<Link>(GetProcAddress(module,name));
+        if(!fn)return FALSE;
+        if(fn(link,target,flags)||fn(link,target,SYMBOLIC_LINK_FLAG_DIRECTORY)||
+           fn(link,NtTarget(target).c_str(),flags)||fn(link,NtTarget(target).c_str(),SYMBOLIC_LINK_FLAG_DIRECTORY))
+            return TRUE;
+        last=GetLastError();return FALSE;
+    };
+    if(tryLink(FromAppModule(),"CreateSymbolicLinkFromAppW"))return TRUE;
+    if(tryLink(GetModuleHandleW(L"kernel32.dll"),"CreateSymbolicLinkW"))return TRUE;
+    if(tryLink(GetModuleHandleW(L"kernelbase.dll"),"CreateSymbolicLinkW"))return TRUE;
+    SetLastError(last?last:ERROR_PRIVILEGE_NOT_HELD);
+    return FALSE;
 }

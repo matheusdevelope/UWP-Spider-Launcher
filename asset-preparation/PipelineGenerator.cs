@@ -30,7 +30,10 @@ namespace AssetPreparation
         static void NoLinks(string path)
         {
             for(string p=Path.GetFullPath(path);p!=null;p=Path.GetDirectoryName(p))
-                if(File.Exists(p)||Directory.Exists(p))Bytes.Require((File.GetAttributes(p)&FileAttributes.ReparsePoint)==0,"Pipeline paths cannot use links");
+            {
+                FileAttributes? attrs=Bytes.TryAttributes(p);
+                if(attrs.HasValue)Bytes.Require((attrs.Value&FileAttributes.ReparsePoint)==0,"Pipeline paths cannot use links");
+            }
         }
         static bool Inside(string path,string root)
         {
@@ -65,7 +68,7 @@ namespace AssetPreparation
         {
             readonly string game,archives;readonly Dictionary<string,string[]> rows;
             readonly Dictionary<string,byte[]> cache=new Dictionary<string,byte[]>();readonly Queue<string> order=new Queue<string>();int cacheBytes;
-            DsarReader archive;string archivePath;FileStream file;string filePath;
+            DsarReader archive;string archivePath;Stream file;string filePath;
             public Sources(string game,string archives,Dictionary<string,string[]> rows) { this.game=game;this.archives=archives;this.rows=rows; }
             public byte[] Read(string hash)
             {
@@ -82,7 +85,7 @@ namespace AssetPreparation
                 else
                 {
                     Bytes.Require(row[2]=="FILE","Unknown shader source");
-                    if(filePath!=path) { if(file!=null)file.Dispose();file=null;filePath=null;file=File.OpenRead(path);filePath=path; }
+                    if(filePath!=path) { if(file!=null)file.Dispose();file=null;filePath=null;file=Bytes.OpenRead(path);filePath=path; }
                     Bytes.Require(offset<=file.Length&&size<=file.Length-offset,"Shader exceeds source file");file.Position=offset;data=Bytes.Read(file,size);
                 }
                 Bytes.Require(Bytes.Hash(data)==hash&&Encoding.ASCII.GetString(data,0,4)=="DXBC"&&Bytes.U32(data,24)==size,"Shader source differs: "+name+". Use the supported original game files.");

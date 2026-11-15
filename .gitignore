@@ -47,6 +47,12 @@
 !docs/*.md
 !docs/images/
 !docs/images/banner.svg
+
+# SSD in-place storage adapters (launcher-owned wrappers, not the private runtime).
+!native/
+!native/*.cpp
+!native/*.def
+!native/*.vcxproj
 # Historical reports are preserved outside the working tree.
 release/LICENSE-CLARIFICATION-DRAFT.md
 release/PACKAGE-INVENTORY-0.5.0.0.json

@@ -36,7 +36,7 @@
       <Grid Grid.Row="3" ColumnSpacing="10" MinHeight="86">
        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
        <Button x:Name="SteamTile" Style="{StaticResource Method}" Click="InstallMethod_Click" Tag="Steam"><StackPanel Spacing="7"><FontIcon Glyph="&#xE896;" FontSize="22" Foreground="#FF7187" HorizontalAlignment="Left"/><TextBlock Text="Steam" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Download your copy" Style="{StaticResource Note}"/></StackPanel></Button>
-       <Button x:Name="UsbTile" Grid.Column="1" Style="{StaticResource Method}" Click="InstallMethod_Click" Tag="Usb"><StackPanel Spacing="7"><FontIcon Glyph="&#xE88E;" FontSize="22" HorizontalAlignment="Left"/><TextBlock Text="USB drive" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Import game files" Style="{StaticResource Note}"/></StackPanel></Button>
+       <Button x:Name="UsbTile" Grid.Column="1" Style="{StaticResource Method}" Click="InstallMethod_Click" Tag="Usb"><StackPanel Spacing="7"><FontIcon Glyph="&#xE88E;" FontSize="22" HorizontalAlignment="Left"/><TextBlock Text="USB / SSD" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Play from the drive" Style="{StaticResource Note}"/></StackPanel></Button>
        <Button x:Name="WifiTile" Grid.Column="2" Style="{StaticResource Method}" Click="InstallMethod_Click" Tag="Wifi"><StackPanel Spacing="7"><FontIcon Glyph="&#xE701;" FontSize="22" HorizontalAlignment="Left"/><TextBlock Text="Wi-Fi" FontSize="17" FontWeight="SemiBold"/><TextBlock Text="Transfer from a PC" Style="{StaticResource Note}"/></StackPanel></Button>
       </Grid>
       <Grid Grid.Row="4" VerticalAlignment="Bottom"><TextBlock x:Name="HomeStorage" Style="{StaticResource Note}" VerticalAlignment="Center"/><Button Content="Manage files" Click="Manage_Click" HorizontalAlignment="Right" FontSize="12" Padding="12,6" MinHeight="30"/></Grid>
@@ -56,7 +56,7 @@
    <PivotItem Header="Install" Margin="0,4,0,6">
     <Grid RowSpacing="8">
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Steam" Click="InstallMethod_Click" Tag="Steam"/><Button Content="USB drive" Click="InstallMethod_Click" Tag="Usb"/><Button Content="Wi-Fi" Click="InstallMethod_Click" Tag="Wifi"/></StackPanel>
+     <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Steam" Click="InstallMethod_Click" Tag="Steam"/><Button Content="USB / SSD" Click="InstallMethod_Click" Tag="Usb"/><Button Content="Wi-Fi" Click="InstallMethod_Click" Tag="Wifi"/></StackPanel>
      <Border Grid.Row="1" x:Name="InstallCard" Style="{StaticResource Card}">
       <Grid>
        <Grid x:Name="SteamPanel" ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -67,7 +67,7 @@
          <TextBlock x:Name="SteamInfo" Text="Supported version selected automatically. No password is stored." Foreground="#86D4DF" FontSize="12" MaxLines="3" TextTrimming="CharacterEllipsis"/>
         </StackPanel></ScrollViewer><Image Grid.Column="1" x:Name="SteamQr" Width="176" Height="176" Stretch="Uniform" VerticalAlignment="Center" Visibility="Collapsed"/>
        </Grid>
-       <StackPanel x:Name="UsbPanel" Visibility="Collapsed" Spacing="8"><TextBlock Text="Import from USB" FontSize="21" FontWeight="SemiBold"/><TextBlock Text="Connect a USB drive with the supported game folder or ZIP. All included supported voice packs are copied." Style="{StaticResource Note}"/><Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="ScanButton" Content="Find files" Click="Scan_Click"/><ComboBox Grid.Column="1" x:Name="ArchiveList" PlaceholderText="Select a game folder or ZIP" HorizontalAlignment="Stretch" FontSize="14" AutomationProperties.Name="Available game folders and ZIPs"/></Grid><Button x:Name="UsbImportButton" Content="Import selected files" Click="Import_Click" HorizontalAlignment="Left"/></StackPanel>
+       <StackPanel x:Name="UsbPanel" Visibility="Collapsed" Spacing="8"><TextBlock Text="Play from USB / SSD" FontSize="21" FontWeight="SemiBold"/><TextBlock Text="Leave the supported game folder on the drive. The default folder is E:\dumps\SpiderMan. Use selected folder plays from that copy; Copy to game storage makes a second copy in the location chosen on the Storage tab." Style="{StaticResource Note}"/><Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="ScanButton" Content="Find files" Click="Scan_Click"/><ComboBox Grid.Column="1" x:Name="ArchiveList" PlaceholderText="Select a game folder or ZIP" HorizontalAlignment="Stretch" FontSize="14" AutomationProperties.Name="Available game folders and ZIPs"/></Grid><StackPanel x:Name="UsbActions" Orientation="Horizontal" Spacing="8"><Button x:Name="UsbUseButton" Content="Use selected folder" Click="UseFolder_Click" Background="#D52F49" Foreground="White"/><Button x:Name="UsbImportButton" Content="Copy to game storage" Click="Import_Click" HorizontalAlignment="Left"/><Button Content="Browse folder" Click="BrowseGameFolder_Click"/></StackPanel></StackPanel>
        <Grid x:Name="WifiPanel" Visibility="Collapsed" ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" IsTabStop="False">
         <StackPanel Spacing="4"><TextBlock Text="Transfer over Wi-Fi" FontSize="21" FontWeight="SemiBold"/><TextBlock x:Name="WifiDescription" Text="Choose your game folder on a PC. No ZIP needed." Style="{StaticResource Note}"/>
@@ -89,7 +89,7 @@
    </PivotItem>
    <PivotItem Header="Storage" Margin="0,4,0,6">
     <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-     <Border Style="{StaticResource Card}"><StackPanel Spacing="14"><TextBlock Text="Xbox storage" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="DestinationInfo" FontSize="15" Foreground="#86D4DF"/><Button Content="Refresh storage" Click="StorageRefresh_Click" HorizontalAlignment="Left"/></StackPanel></Border>
+     <Border Style="{StaticResource Card}"><StackPanel Spacing="14"><TextBlock Text="Xbox storage" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="DestinationInfo" FontSize="15" Foreground="#86D4DF"/><TextBlock Text="New Steam, Wi-Fi and USB copies go to the selected location. A game already on the SSD can be used in place from the Install tab." Style="{StaticResource Note}"/><StackPanel x:Name="StorageActions" Orientation="Horizontal" Spacing="8"><Button Content="Internal storage" Click="UseInternalStorage_Click"/><Button Content="External SSD" Click="UseExternalStorage_Click" Background="#D52F49" Foreground="White"/><Button Content="Choose folder…" Click="BrowseStorage_Click"/></StackPanel><Button Content="Refresh storage" Click="StorageRefresh_Click" HorizontalAlignment="Left"/></StackPanel></Border>
      <Border Grid.Column="1" Style="{StaticResource Card}" Background="#241C27"><StackPanel Spacing="12"><TextBlock Text="Remove game files" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="Free space used by the prepared game. Import and prepare your copy again to play." Style="{StaticResource Note}"/><TextBlock Text="Keeps saves, the runtime app and your original files. Close the game first." FontSize="13"/><Button x:Name="DeleteGameButton" Content="Review deletion…" Click="DeleteGame_Click" HorizontalAlignment="Left" Background="#542839"/><TextBlock x:Name="CleanupStatus" FontSize="12" Foreground="#EEC0CA" MaxLines="3" TextTrimming="CharacterEllipsis"/></StackPanel></Border>
     </Grid>
    </PivotItem>
@@ -106,6 +106,11 @@
      <TextBlock Text="Stopping a download keeps partial files. Sign in again to verify and resume them." Style="{StaticResource Note}"/>
      <TextBlock x:Name="RuntimePackageInfo" Text="A compatible game runtime must be installed separately. Close the game before checking it or restoring startup settings. Your existing settings and saves are preserved." Style="{StaticResource Note}"/>
      <Button Content="Check runtime / repair settings" Click="RepairRuntime_Click" HorizontalAlignment="Left"/>
+     <Border Height="1" Background="#303746" Margin="0,4"/>
+     <TextBlock Text="Debug log" FontSize="23" FontWeight="SemiBold"/>
+     <TextBlock Text="Copies the exact Prepare/Play flow and HRESULT so you can paste it. Xbox Device Portal can also read LocalState\launcher-debug.log." Style="{StaticResource Note}"/>
+     <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Copy debug log" Click="CopyDebugLog_Click"/><Button Content="Show last error" Click="ShowLastError_Click"/></StackPanel>
+     <TextBlock x:Name="DebugLogStatus" Style="{StaticResource Note}"/>
     </StackPanel></ScrollViewer></Border>
    </PivotItem>
   </Pivot>

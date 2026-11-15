@@ -37,7 +37,7 @@ namespace SpiderManInstaller
         }
         internal static string Inspect(string executable)
         {
-            using(var file=File.OpenRead(executable)){
+            using(var file=GameStorage.OpenRead(executable)){
                 string hash=ImportEngine.Digest(file);
                 if(hash==OriginalExecutableHash&&file.Length==121920952)return Original;
                 if(hash==NewExecutableHash&&file.Length==NewExecutableSize)return Newer;

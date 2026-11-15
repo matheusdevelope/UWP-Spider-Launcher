@@ -38,6 +38,12 @@ namespace SpiderManInstaller
             foreach(var value in JsonArray.Parse(File.ReadAllText(inventory))) {
                 cancel.ThrowIfCancellationRequested();var row=value.GetObject();string name=row.GetNamedString("path");
                 if(String.IsNullOrEmpty(name)||ImportEngine.SafePath(name)!=name||name.EndsWith("/"))throw new IOException("Invalid runtime inventory path.");
+                if(name.Equals("SpShell.dll",StringComparison.OrdinalIgnoreCase)||name.Equals("SpArgs40.dll",StringComparison.OrdinalIgnoreCase)) {
+                    string wrapper=Path.Combine(Bundle,"StartupContent",name);
+                    if(!File.Exists(wrapper)||new FileInfo(wrapper).Length<1024)throw new IOException("Preparation verification failed: "+name);
+                    Verify(Path.Combine(Bundle,"StartupContent",Path.GetFileNameWithoutExtension(name)+"Core.dll"),(long)row.GetNamedNumber("size"),row.GetNamedString("sha256"));
+                    continue;
+                }
                 Verify(Path.Combine(Bundle,"StartupContent",name),(long)row.GetNamedNumber("size"),row.GetNamedString("sha256"));
             }
         }
@@ -97,14 +103,30 @@ namespace SpiderManInstaller
                 GamePreparation.GeneratePipelines(SourceImport(),progress,cancel);
             if(!AssetPreparation.PipelineGenerator.IsReady(Pipelines))throw new IOException("Shader preparation is incomplete; original files are preserved.");
             string original=Path.Combine(SourceImport(),"Spider-Man.exe");
-            AssetPreparation.ComputeGenerator.Run(File.Exists(original)?original:module,GamePreparation.ComputeMap,Path.Combine(Data,"first-launch-compute-v1"),progress,cancel);
-            AssetPreparation.OwnedCompressionPreparation.Run(File.Exists(original)?original:module,Path.Combine(Bundle,"CompilerTools"),Path.Combine(ApplicationData.Current.LocalFolder.Path,"owned-compression-shaders-v1"),progress,cancel);
+            bool originalPresent=GameStorage.AccessibleFile(original);
+            AssetPreparation.ComputeGenerator.Run(originalPresent?original:module,GamePreparation.ComputeMap,Path.Combine(Data,"first-launch-compute-v1"),progress,cancel);
+            AssetPreparation.OwnedCompressionPreparation.Run(originalPresent?original:module,Path.Combine(Bundle,"CompilerTools"),Path.Combine(ApplicationData.Current.LocalFolder.Path,"owned-compression-shaders-v1"),progress,cancel);
             string runtimeArchives=Path.Combine(Data,"asset_archive"),ownedArchives=Path.Combine(SourceImport(),"asset_archive");
             string ownedIndex=Path.Combine(ownedArchives,"toc");
-            if(!Directory.Exists(ownedArchives)){ownedArchives=runtimeArchives;ownedIndex=Path.Combine(GamePreparation.RuntimeRoot,"original-asset-toc");}
+            if(!GameStorage.AccessibleDirectory(ownedArchives)){ownedArchives=runtimeArchives;ownedIndex=Path.Combine(GamePreparation.RuntimeRoot,"original-asset-toc");}
             bool mapChanged=AssetPreparation.MapTravelPreparation.Ensure(ownedArchives,runtimeArchives,progress,cancel,ownedIndex);
             Log("map_travel_ui_v1 ready=1 changed="+(mapChanged?1:0)+" native_destination_locks_preserved=1 owned_source_unchanged=1");
             Log("owned_runtime_verified bundled_game_module=0 bundled_shader_recipes=0 generated_recipes="+AssetPreparation.PipelineGenerator.Count);
+            DeployStorageAdapters();
+        }
+        static void DeployStorageAdapters()
+        {
+            Directory.CreateDirectory(Data);
+            string source=Path.Combine(Bundle,"StartupContent");
+            foreach(string name in new[]{"SpShellCore.dll","SpShell.dll","SpArgs40Core.dll","SpArgs40.dll"})
+            {
+                string from=Path.Combine(source,name),to=Path.Combine(Data,name);
+                if(!File.Exists(from))continue;
+                try { File.Copy(from,to,true); }
+                catch(IOException){ Log("storage_adapter_copy_failed name="+name); }
+                catch(UnauthorizedAccessException){ Log("storage_adapter_copy_failed name="+name); }
+            }
+            Log("storage_adapters_deployed dest="+Data);
         }
         static byte[] Hex(string value)
         {
@@ -161,7 +183,7 @@ namespace SpiderManInstaller
         }
         internal static async Task<bool> Launch()
         {
-            await Task.Run(()=>{VerifyPayload(null,CancellationToken.None);EnsureOwnedFiles(null,CancellationToken.None);SeedMissingSettings();});
+            await Task.Run(()=>{VerifyPayload(null,CancellationToken.None);EnsureOwnedFiles(null,CancellationToken.None);SeedMissingSettings();DeployStorageAdapters();});
             var support=await Launcher.QueryUriSupportAsync(PlayUri,LaunchQuerySupportType.Uri,Family);
             if(support!=LaunchQuerySupportStatus.Available)throw new IOException("The included game entry is unavailable. Reinstall this launcher; imported files are preserved.");
             return await Launcher.LaunchUriAsync(PlayUri,new LauncherOptions {TargetApplicationPackageFamilyName=Family});

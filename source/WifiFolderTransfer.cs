@@ -83,12 +83,12 @@ namespace SpiderManInstaller
             // Destination is generated locally, and row.Path comes only from the pinned manifest.
             string prefix=Path.GetFullPath(Destination)+Path.DirectorySeparatorChar;
             if(!Path.GetFullPath(target).StartsWith(prefix,StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("Unsafe destination.");
-            Directory.CreateDirectory(Path.GetDirectoryName(target));
+            GameStorage.EnsureWritable(Path.GetDirectoryName(target));
             string partial=target+".partial";
             bool already=verified.Contains(index);
             try
             {
-                using(var output=already?Stream.Null:new FileStream(partial,FileMode.Create,FileAccess.Write,FileShare.None))
+                using(var output=already?Stream.Null:GameStorage.OpenCreateAlways(partial,FileAccess.Write))
                 using(var hash=SHA256.Create())
                 {
                     byte[] buffer=new byte[1024*1024];long written=0;
@@ -106,20 +106,20 @@ namespace SpiderManInstaller
                     await output.FlushAsync(cancel).ConfigureAwait(false);
                 }
                 cancel.ThrowIfCancellationRequested();
-                if(!already){File.Move(partial,target);verified.Add(index);Done+=length;}
+                if(!already){GameStorage.MoveFile(partial,target);verified.Add(index);Done+=length;}
                 CommitIfComplete();
                 progress?.Invoke(Done,Total,Complete?"Copy complete and verified — choose Prepare game.":row.Path);
             }
-            finally { if(File.Exists(partial))File.Delete(partial); }
+            finally { GameStorage.DeleteFile(partial); }
         }
         void CommitIfComplete()
         {
             if(verified.Count!=selected.Count || Complete)return;
             string receipt=Path.Combine(Destination,"import-receipt.txt");
-            File.WriteAllText(receipt+".partial",
+            GameStorage.WriteText(receipt+".partial",
                 "Original Steam folder received over Wi-Fi and SHA-256 verified.\r\nImported UTC: "+DateTime.UtcNow.ToString("o")+
-                "\r\nFiles: "+selected.Count+"\r\nBytes: "+Total+"\r\n"+LanguageImports.Description(selected,languages)+"\r\nReady for game preparation.\r\n",Encoding.UTF8);
-            File.Move(receipt+".partial",receipt);Complete=true;
+                "\r\nFiles: "+selected.Count+"\r\nBytes: "+Total+"\r\n"+LanguageImports.Description(selected,languages)+"\r\nReady for game preparation.\r\n");
+            GameStorage.MoveFile(receipt+".partial",receipt);Complete=true;
         }
     }
 }

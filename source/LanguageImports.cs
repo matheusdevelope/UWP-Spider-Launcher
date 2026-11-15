@@ -84,7 +84,8 @@ namespace SpiderManInstaller
             var selected = Select(new List<ExpectedFile>(), packs, path =>
             {
                 string file = Path.Combine(archiveRoot, path.Substring("asset_archive/".Length));
-                return File.Exists(file) ? (long?)new FileInfo(file).Length : null;
+                if (!GameStorage.AccessibleFile(file)) return null;
+                using (var input = GameStorage.OpenRead(file)) return input.Length;
             });
             var audioPaths = new HashSet<string>(packs.Select(p => p.File.Path), StringComparer.OrdinalIgnoreCase);
             for (int i = rows.Count - 1; i >= 0; i--)

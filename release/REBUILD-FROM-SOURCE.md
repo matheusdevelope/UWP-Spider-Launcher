@@ -1,4 +1,4 @@
-> Current source: 0.6.0.56. See [version notes](STATUS.md) for compatibility and limitations.
+> Current source: 0.6.0.58. See [version notes](STATUS.md) for compatibility and limitations.
 
 # Source and rebuild materials
 
@@ -41,7 +41,7 @@ This path was tested by adding an assembly-metadata attribute to SteamKit, rebui
 
 ## Optional combined package
 
-The source includes combined-package launch and preparation orchestration. It does not include the native host, adapters, runtime defaults, or executable-derivation support. A combined build requires the matching runtime inputs, supplied separately and reviewed for their own redistribution terms:
+The source includes combined-package launch and preparation orchestration, plus the launcher-owned SSD storage adapters under `native/`. It does not include the native host, original `SpShell`/`SpArgs40` runtime DLLs, runtime defaults, or executable-derivation support. A combined build compiles those adapters, then requires the matching runtime inputs, supplied separately and reviewed for their own redistribution terms:
 
 ```powershell
 .\build\build-launcher.ps1 -CombinedRuntimePayloadRoot 'C:\YourInputs\RuntimePayload' -CombinedPreparationSupportRoot 'C:\YourInputs\PreparationSupport'

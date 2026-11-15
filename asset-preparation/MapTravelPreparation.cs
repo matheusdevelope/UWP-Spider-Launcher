@@ -59,7 +59,7 @@ namespace AssetPreparation
             public List<string> Names=new List<string>();
             public Index(string file)
             {
-                using(var f=File.OpenRead(file)) {
+                using(var f=Bytes.OpenRead(file)) {
                     byte[] h=Bytes.Read(f,10);int size=checked((int)Bytes.U32(h,4));
                     Bytes.Require(Bytes.U32(h,0)==0x77af12af&&size>16&&size<=64*1024*1024&&h[8]==0x78&&((h[8]<<8)+h[9])%31==0&&(h[9]&32)==0,"Unsupported map index");
                     using(var z=new DeflateStream(f,CompressionMode.Decompress)) { Raw=Bytes.Read(z,size);Bytes.Require(z.ReadByte()==-1,"Index expands beyond declared size"); }
@@ -102,11 +102,11 @@ namespace AssetPreparation
         }
         static void SaveIndex(string path,byte[] raw)
         {
-            using(var f=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.None)) {
+            using(var f=Bytes.CreateNew(path,FileAccess.Write)) {
                 var w=new BinaryWriter(f,Encoding.UTF8,true);w.Write(0x77af12afu);w.Write(raw.Length);w.Write((byte)0x78);w.Write((byte)0x9c);
                 using(var z=new DeflateStream(f,CompressionLevel.Optimal,true))z.Write(raw,0,raw.Length);
                 uint a=1,b=0;foreach(byte value in raw){a=(a+value)%65521;b=(b+a)%65521;}uint sum=b<<16|a;
-                w.Write((byte)(sum>>24));w.Write((byte)(sum>>16));w.Write((byte)(sum>>8));w.Write((byte)sum);f.Flush(true);
+                w.Write((byte)(sum>>24));w.Write((byte)(sum>>16));w.Write((byte)(sum>>8));w.Write((byte)sum);Bytes.Flush(f);
             }
         }
         public static bool Ensure(string ownedAssets,string runtimeAssets,Action<string> progress,CancellationToken cancel,string ownedIndex=null)
@@ -132,12 +132,12 @@ namespace AssetPreparation
                 cancel.ThrowIfCancellationRequested();
                 // The archive is durable before the TOC can refer to it. The old
                 // TOC is preserved once, including all texture/model/pool fixes.
-                if(File.Exists(archive))File.Replace(tempArchive,archive,null);else File.Move(tempArchive,archive);
-                string backup=toc+".before-map-travel-v1";if(!File.Exists(backup))File.Copy(toc,backup,false);
-                File.Replace(tempToc,toc,null);
+                if(Bytes.FileAvailable(archive))Bytes.ReplaceFile(tempArchive,archive,null);else Bytes.MoveReplace(tempArchive,archive);
+                string backup=toc+".before-map-travel-v1";if(!Bytes.FileAvailable(backup)) { using(var input=Bytes.OpenRead(toc)) using(var output=Bytes.CreateNew(backup,FileAccess.Write)) input.CopyTo(output); }
+                Bytes.ReplaceFile(tempToc,toc,null);
                 Bytes.Require(Bytes.Hash(new Index(toc).ReadMap(runtimeAssets))==FixedHash,"Installed map correction failed verification");
                 return true;
-            } finally {if(File.Exists(tempArchive))File.Delete(tempArchive);if(File.Exists(tempToc))File.Delete(tempToc);}
+            } finally {Bytes.DeleteIfExists(tempArchive);Bytes.DeleteIfExists(tempToc);}
         }
     }
 }

@@ -10,12 +10,16 @@ namespace SpiderManInstaller
     public sealed class GameContentCleanup
     {
         readonly string root;
+        readonly string archiveFolder;
         readonly List<string> files;
         public long Bytes { get; private set; }
         public int Count => files.Count;
+        public bool ArchivesLinked { get; }
         public GameContentCleanup(string runtimeRoot, IEnumerable<string> destinations)
         {
             root = Path.GetFullPath(runtimeRoot).TrimEnd(Path.DirectorySeparatorChar);
+            archiveFolder = Path.Combine(root, "StartupContent", "asset_archive");
+            ArchivesLinked = GameStorage.IsLink(archiveFolder);
             Check(root);
             if (!File.Exists(Path.Combine(root, "runtime-bootstrap.json")) ||
                 !File.Exists(Path.Combine(root, "preparation-source.txt")))
@@ -27,10 +31,11 @@ namespace SpiderManInstaller
                 if (safe.Split('/').Any(p => p.Equals("SAVE", StringComparison.OrdinalIgnoreCase) || p.Equals("LocalState", StringComparison.OrdinalIgnoreCase)) || safe.EndsWith(".save", StringComparison.OrdinalIgnoreCase))
                     continue;
                 if (safe.Equals("SpiderManNativeStartup.exe", StringComparison.OrdinalIgnoreCase)) continue;
+                if (ArchivesLinked && safe.StartsWith("asset_archive/", StringComparison.OrdinalIgnoreCase)) continue;
                 candidates.Add(Resolve("StartupContent/" + safe));
                 candidates.Add(Resolve("StartupContent/" + safe + ".prepare-partial"));
             }
-            Collect(Resolve("StartupContent/asset_archive"), candidates);
+            if (!ArchivesLinked) Collect(archiveFolder, candidates);
             Collect(Resolve("PreparedOverlays"), candidates);
             candidates.Add(Resolve("original-asset-toc"));
             files = candidates.Where(File.Exists).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
@@ -42,11 +47,16 @@ namespace SpiderManInstaller
             if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new IOException("Cleanup path escaped the game folder.");
             Check(path); return path;
         }
-        static void Check(string path)
+        void Check(string path)
         {
             for (string current = Path.GetFullPath(path); !String.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))
-                if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                    throw new IOException("Cleanup refuses linked files or folders.");
+            {
+                if (!(File.Exists(current) || Directory.Exists(current))) continue;
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) == 0) continue;
+                if (ArchivesLinked && current.Equals(archiveFolder, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("Cleanup refuses to follow the SSD game folder. Only the internal link is removed.");
+                throw new IOException("Cleanup refuses linked files or folders.");
+            }
         }
         void Collect(string directory, HashSet<string> candidates)
         {
@@ -73,10 +83,16 @@ namespace SpiderManInstaller
             {
                 Check(file); File.Delete(file); progress?.Invoke(++done, files.Count);
             }
-            RemoveEmpty(Resolve("StartupContent/asset_archive"));
+            if (ArchivesLinked)
+            {
+                GameStorage.RemoveLink(archiveFolder);
+                if (GameStorage.IsLink(archiveFolder)) throw new IOException("The SSD archive link could not be removed. Close the game and retry.");
+            }
+            else RemoveEmpty(archiveFolder);
             RemoveEmpty(Resolve("PreparedOverlays"));
-            if(Directory.Exists(Resolve("StartupContent/asset_archive")) || Directory.Exists(Resolve("PreparedOverlays")))
+            if ((!ArchivesLinked && Directory.Exists(archiveFolder)) || Directory.Exists(Resolve("PreparedOverlays")))
                 throw new IOException("New game files appeared during cleanup. Close the game and retry.");
+            try { File.Delete(Path.Combine(root, "archive-link.txt")); } catch { }
             // Journal stays until completion so a partial deletion can be retried.
             File.Delete(Resolve("preparation-source.txt"));
             File.Delete(pending);

@@ -6,7 +6,15 @@ namespace SpiderManInstaller
 {
     sealed partial class App : Application
     {
-        public App() { InitializeComponent(); }
+        public App()
+        {
+            InitializeComponent();
+            UnhandledException += (s, e) =>
+            {
+                DiagnosticLog.Error("unhandled", e.Exception);
+                e.Handled = true;
+            };
+        }
         bool systemBackRegistered;
         void RegisterSystemBack()
         {

@@ -36,7 +36,7 @@ namespace AssetPreparation
                 if(full.StartsWith(root+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)){trustedRoot=root;break;}
             }
 #endif
-            AssetBatch.CheckPathLinks(path,trustedRoot,p=>File.Exists(p)||Directory.Exists(p)?(FileAttributes?)File.GetAttributes(p):null);
+            AssetBatch.CheckPathLinks(path,trustedRoot,Bytes.TryAttributes);
         }
         static bool Verified(string path,Reference item)
         {
@@ -55,7 +55,7 @@ namespace AssetPreparation
             if(!File.Exists(Path.Combine(compilerRoot,"dxcompiler.dll"))||!File.Exists(Path.Combine(compilerRoot,"dxil.dll")))
                 throw new IOException("The included shader-conversion tools are incomplete. Original game files are preserved.");
             Directory.CreateDirectory(output);
-            using(var source=new FileStream(executable,FileMode.Open,FileAccess.Read,FileShare.Read))
+            using(var source=Bytes.OpenRead(executable))
             {
                 for(int i=0;i<References.Length;++i)
                 {

@@ -4,18 +4,25 @@ UWP Spider Launcher imports and prepares your own supported game files. It does 
 
 ## Availability
 
-The current launcher source is 0.6.0.52. This source update does not publish a new installer or runtime bundle. Existing release downloads may differ from the current source. The instructions below describe the workflow once matching launcher and runtime components are installed.
+The current launcher source is 0.6.0.58. This source update does not publish a new installer or runtime bundle. Existing release downloads may differ from the current source. The instructions below describe the workflow once matching launcher and runtime components are installed.
 
 ## Choose an import method
 
-### USB
+### USB / SSD (play from the drive)
 
-1. Copy your supported original game folder to a USB drive on your PC.
+The game can stay on an external SSD. It does not have to occupy the Xbox internal `D:` volume.
+
+1. On a PC, copy your supported original game folder to the drive as `dumps\SpiderMan` (so the Xbox sees `E:\dumps\SpiderMan` with `Spider-Man.exe` and `asset_archive`). Any other folder on the drive also works.
 2. Connect the drive to Xbox.
-3. Open **Install → USB drive → Find files**.
-4. Select the game folder and choose **Import selected files**.
+3. Open **Storage → External SSD** to use that default folder for new copies, or **Choose folder…** to pick another location. **Internal storage** keeps the previous `D:\DevelopmentFiles` behavior.
+4. Open **Install → USB / SSD → Find files**.
+5. Select the game folder and choose **Use selected folder**. That verifies the copy in place and does not copy it to internal storage. **Copy to game storage** is the older full-copy path, into whichever location Storage currently selects.
 
-A ZIP is optional. Folder import avoids keeping an extra ZIP alongside the extracted files. The exact original 3.0618 and newer 4.0630 installations are supported. The newer one requires accepting an experimental-version warning; other versions or mismatched files stop validation.
+A ZIP is optional. The exact original 3.0618 and newer 4.0630 installations are supported. The newer one requires accepting an experimental-version warning; other versions or mismatched files stop validation.
+
+Keep the SSD connected while playing. Verify stays in place on the drive. Prepare writes a small runtime/host area and generated overlays on internal `D:`; the large original archives stay on the SSD. Keep a PC copy of the original Steam files.
+
+How that split works on Xbox (AppContainer broker, native IAT remap, overlay-then-SSD path order, and the problems that forced it) is documented in [SSD in-place](SSD-IN-PLACE.md).
 
 ### Wi-Fi
 
@@ -77,7 +84,7 @@ This action keeps existing settings and saves. It does not restore deleted saves
 
 For a fresh pipeline-cache test, preserve the locally generated recipes, verify that the generated compiled cache is empty, and compare startup preparation with a second launch. A recipe being present does not prove its pipeline was prepared successfully, and a startup test does not establish coverage of every scene in the game.
 
-Use **Storage → Remove game files** to review removal of the prepared game. This operation is designed to keep saves, the runtime app, and original import files. Always read the confirmation before proceeding.
+Use **Storage → Remove game files** to review removal of the prepared game. This operation is designed to keep saves, the runtime app, and original import files. If the archives were used in place from an SSD, only the internal runtime link and prepared files are removed; the SSD game folder is kept. Always read the confirmation before proceeding.
 
 For an issue report, include launcher version, import method, supported game build, and the exact error message. Do not upload game files, saves, account details, sign-in QR codes, tokens, or signing keys.
 

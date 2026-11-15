@@ -28,11 +28,26 @@ try {
     }
     $revision = & git -C DirectXTex rev-parse HEAD
     if ($LASTEXITCODE -ne 0 -or $revision -ne '4feb3e11a020f35b796fc769a74216a555d4f5ef') { throw 'Unexpected DirectXTex revision.' }
-    & $msbuild OwnedShaderConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal /nologo
+    $toolset = $null
+    foreach ($vcVer in @('v180','v170','v160')) {
+        $toolsetsDir = Join-Path $VisualStudio "MSBuild\Microsoft\VC\$vcVer\Platforms\x64\PlatformToolsets"
+        if (Test-Path -LiteralPath $toolsetsDir) {
+            $toolset = (Get-ChildItem -LiteralPath $toolsetsDir -Directory | Sort-Object Name -Descending | Select-Object -First 1).Name
+            break
+        }
+    }
+    if (!$toolset) { throw 'No MSVC PlatformToolset was found under this Visual Studio install.' }
+    $nativeProps = @("/p:PlatformToolset=$toolset")
+    $vc144 = Join-Path $VisualStudio 'VC\Tools\MSVC\14.44.35207'
+    if (Test-Path -LiteralPath $vc144) {
+        $nativeProps += '/p:VCToolsVersion=14.44.35207'
+        Write-Output "Using PlatformToolset $toolset with MSVC 14.44.35207"
+    } else { Write-Output "Using PlatformToolset $toolset" }
+    & $msbuild OwnedShaderConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 @nativeProps /verbosity:minimal /nologo
     if ($LASTEXITCODE -ne 0) { throw 'Owned shader converter build failed.' }
-    & $msbuild TextureConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 /verbosity:minimal /nologo
+    & $msbuild TextureConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 @nativeProps /verbosity:minimal /nologo
     if ($LASTEXITCODE -ne 0) { throw 'Native texture adapter build failed.' }
-    & $msbuild TextureConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 /p:AssetDesktop=true /verbosity:minimal /nologo
+    & $msbuild TextureConvert.vcxproj /m:2 /p:Configuration=Release /p:Platform=x64 /p:AssetDesktop=true @nativeProps /verbosity:minimal /nologo
     if ($LASTEXITCODE -ne 0) { throw 'Desktop texture adapter build failed.' }
     $source = @('AssetGenerator.cs','AssetIndex.cs','ModelLod.cs','ResampledTexture.cs','AssetBatch.cs')
     $references = @('/r:bin\K4os.Compression.LZ4.dll','/r:bin\System.Memory.dll','/r:System.IO.Compression.dll')

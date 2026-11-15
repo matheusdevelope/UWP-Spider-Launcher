@@ -129,11 +129,11 @@ namespace SpiderManInstaller
                     {
                         if(folder.Active)throw new IOException("Finish the folder transfer or restart the receiver before sending a ZIP.");
                         if(length==0)throw new InvalidDataException("Choose a ZIP file.");
-                        if(File.Exists(Path.Combine(root,"received-game.zip")))throw new IOException("Import the ZIP already received before sending another.");
+                        if(GameStorage.AccessibleFile(Path.Combine(root,"received-game.zip")))throw new IOException("Import the ZIP already received before sending another.");
                         if(free()<checked(length+ImportEngine.Margin))throw new IOException("Not enough game storage for the ZIP.");
                         partial=Path.Combine(root,"upload-"+Guid.NewGuid().ToString("N")+".partial");
                         byte[] buffer=new byte[1024*1024];long done=0;
-                        using(var file=new FileStream(partial,FileMode.CreateNew,FileAccess.Write,FileShare.None))
+                        using(var file=GameStorage.OpenCreate(partial,FileAccess.Write))
                         using(var timed=new IdleReadStream(input,deadline,stop))
                         {
                             while(done<length)
@@ -144,7 +144,7 @@ namespace SpiderManInstaller
                             }
                             await file.FlushAsync(stop);
                         }
-                        File.Move(partial,Path.Combine(root,"received-game.zip"));partial=null;receiving=false;
+                        GameStorage.MoveFile(partial,Path.Combine(root,"received-game.zip"));partial=null;receiving=false;
                         status?.Invoke("ZIP received. Choose Import received ZIP.");finished?.Invoke(false);
                         await Respond(output,200,"ZIP received. Choose Import received ZIP on Xbox.");return;
                     }
@@ -159,7 +159,7 @@ namespace SpiderManInstaller
                         try{await Respond(output,400,message);}catch{}
                     }
                 }
-                finally {if(partial!=null && File.Exists(partial))File.Delete(partial);if(acquired){receiving=false;gate.Release();}}
+                finally {if(partial!=null)GameStorage.DeleteFile(partial);if(acquired){receiving=false;gate.Release();}}
             }
         }
         static async Task Respond(Stream stream,int code,string text,string type="text/plain; charset=utf-8")

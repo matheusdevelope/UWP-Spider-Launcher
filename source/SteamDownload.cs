@@ -27,13 +27,13 @@ namespace SpiderManInstaller
                 token.ThrowIfCancellationRequested();
                 SteamLanguages.Depots(language,languageOnly); // Reject unknown IDs before using a path or connecting.
                 string folder = languageOnly ? Path.Combine(localFolder,"SteamLanguages",language) : Path.Combine(localFolder, "SteamDownload");
-                Directory.CreateDirectory(folder);
+                GameStorage.EnsureWritable(folder);
                 trace = new TransferTrace(Path.Combine(localFolder, "steam-transfer.log"));
                 if (expected == null || expected.Count == 0) throw new InvalidDataException("Supported game-file list is missing.");
                 long required = TransferCore.RequiredFreeSpace(folder, expected);
                 if (freeBytes < required) throw new TransferProblem("Need " + (required / 1073741824.0).ToString("F1") + " GiB free for download and safe replacement.");
                 string receipt = TransferCore.FullPath(folder, "import-receipt.txt");
-                if (!languageOnly && File.Exists(receipt)) File.Delete(receipt);
+                if (!languageOnly && GameStorage.AccessibleFile(receipt)) GameStorage.DeleteFile(receipt);
                 var tracker = new DownloadProgressTracker(progress ?? (p => { }));
                 tracker.Begin(expected.Sum(f => f.Size));
                 pulse = new Timer(_ => tracker.Pulse(), null, 1000, 1000);
@@ -52,9 +52,9 @@ namespace SpiderManInstaller
                 }
                 token.ThrowIfCancellationRequested();
                 if (!languageOnly) {
-                    File.WriteAllText(receipt, "Verified original Steam files\r\nUTC " + DateTime.UtcNow.ToString("o") +
+                    GameStorage.WriteText(receipt, "Verified original Steam files\r\nUTC " + DateTime.UtcNow.ToString("o") +
                         "\r\nFiles " + expected.Count + "\r\nReady for preparation.\r\n");
-                    File.WriteAllText(TransferCore.FullPath(folder,SteamLanguages.PreferenceFile),language);
+                    GameStorage.WriteText(TransferCore.FullPath(folder,SteamLanguages.PreferenceFile),language);
                 }
                 tracker.Stage("Complete"); trace.Record(TransferEvent.Completed, completed);
                 status(languageOnly?"Voice pack downloaded and verified.":"Steam files verified. Choose Prepare game to enable Play.");

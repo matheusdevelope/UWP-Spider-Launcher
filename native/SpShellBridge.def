@@ -1,0 +1,4 @@
+LIBRARY SpShell
+EXPORTS
+    InitializeStorageAdapter
+    SHGetFolderPathW

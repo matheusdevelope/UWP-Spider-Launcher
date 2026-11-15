@@ -1,5 +1,19 @@
 # Version notes
 
+## 0.6.0.58
+
+- External USB/SSD game storage: default folder `E:\dumps\SpiderMan`, folder picker, and in-place play without copying the heavy archives onto internal `D:` storage.
+- Xbox removable I/O uses only the StorageFolder broker (`FutureAccessList`, `RemovableDevices`, GetFile/CreateFile/CreateFolder, `System.FreeSpace`). `System.IO` and `CreateFile2FromAppW` are not used on `E:` (they return access denied, including on `.exe` files and free-space checks).
+- Prepare does not create the volume root `E:\`, treats removable drives as `E:\` rather than a cwd-relative `GetFullPath("E:")`, and keeps the picked StorageFolder for the whole run.
+- Prepare writes `archive-link.txt` plus small Xbox overlays on internal `D:`. Junctions and `CreateSymbolicLinkFromAppW` targeting the SSD are blocked on Xbox, and copying archives onto `D:` is not used.
+- Combined Play wraps `SpArgs40` (preload IAT) and `SpShell` so the native host's `CreateFile2`/`CreateFileW` opens reach the SSD before the required-asset check. Path order is existing overlay, then LooseApps overlay, then SSD; overlay writes stay on `D:`.
+- Combined Xbox packages embed .NET Native and VC++ runtime DLLs (`SharedLibrary.dll`, `mrt100_app.dll`, UWP and desktop CRT). Symlink APIs are resolved at runtime so the package can start on Developer Mode.
+- Prepare skips SHA-256 of the large archives when `import-receipt.txt` exists and sizes still match. Settings → Copy debug log writes `LocalState\launcher-debug.log`.
+- Storage cleanup removes the internal link and prepared host files; the SSD game folder is kept.
+- Design notes: [SSD in-place](../docs/SSD-IN-PLACE.md).
+
+Validation: a combined private test build prepared a 4.0630 dump from `E:\dumps\SpiderMan` on Xbox Series X. The menu opened, New Game loaded, and the user confirmed a playable session. This confirms SSD in-place for that dump, not full-game stability.
+
 ## 0.6.0.56
 
 - Combined-package Play generates a fast-travel tutorial correction from the user’s verified map UI.

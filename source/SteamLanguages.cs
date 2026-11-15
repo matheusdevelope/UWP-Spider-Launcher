@@ -72,19 +72,23 @@ namespace SpiderManInstaller
             TransferCore.Verify(downloadedRoot, pack.File, token);
             string source=TransferCore.FullPath(downloadedRoot,pack.File.Path),target=TransferCore.FullPath(gameRoot,pack.File.Path);
             token.ThrowIfCancellationRequested();
-            if(File.Exists(target)) {
-                // Existing installed packs are preserved, including when in use.
+            if(GameStorage.AccessibleFile(target)) {
                 TransferCore.Verify(gameRoot,pack.File,token);return;
             }
-            Directory.CreateDirectory(Path.GetDirectoryName(target));
-            File.Move(source,target);
+            GameStorage.EnsureWritable(Path.GetDirectoryName(target));
+            GameStorage.MoveFile(source,target);
         }
         internal static void ApplyImportPreference(string import, string gameRoot, IList<LanguagePack> catalogue)
         {
             string file=TransferCore.FullPath(import,PreferenceFile);
-            if(!File.Exists(file))return;
-            if(new FileInfo(file).Length>64)throw new InvalidDataException("Invalid Steam language preference.");
-            var pack=Pack(catalogue,File.ReadAllText(file).Trim());
+            if(!GameStorage.AccessibleFile(file))return;
+            string preference;
+            using(var input=GameStorage.OpenRead(file))
+            {
+                if(input.Length>64)throw new InvalidDataException("Invalid Steam language preference.");
+                using(var reader=new StreamReader(input))preference=reader.ReadToEnd().Trim();
+            }
+            var pack=Pack(catalogue,preference);
             GameLanguageSettings.Apply(gameRoot,pack.Language,catalogue.Select(p=>new GameLanguageOption {
                 Id=p.Language,Label=p.Label,Archive=Path.GetFileName(p.File.Path),Size=p.File.Size}).ToList());
         }

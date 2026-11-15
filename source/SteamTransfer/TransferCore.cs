@@ -112,9 +112,9 @@ namespace SpiderManInstaller.SteamTransfer
         {
             token.ThrowIfCancellationRequested();
             string path = FullPath(root, expected.Path);
-            if (!File.Exists(path) || new FileInfo(path).Length != expected.Size)
+            if (!GameStorage.AccessibleFile(path) || GameStorage.FileLength(path) != expected.Size)
                 throw new InvalidDataException("Missing or wrong-sized supported game file: " + expected.Path);
-            using (var input = File.OpenRead(path))
+            using (var input = GameStorage.OpenRead(path))
                 if (!string.Equals(Hash(input, token), expected.Hash, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("Unsupported or damaged game file: " + expected.Path);
         }
@@ -134,7 +134,7 @@ namespace SpiderManInstaller.SteamTransfer
             foreach (var file in expected)
             {
                 foreach (var path in new[] { FullPath(root, file.Path), PartialPath(root, file) })
-                    if (File.Exists(path)) present = checked(present + Math.Min(new FileInfo(path).Length, file.Size));
+                    if (GameStorage.AccessibleFile(path)) present = checked(present + Math.Min(GameStorage.FileLength(path), file.Size));
             }
             // Reserve a largest-file replacement and 1 GiB. Existing partials count as
             // already allocated storage, not verified content (verification happens below).
@@ -147,16 +147,16 @@ namespace SpiderManInstaller.SteamTransfer
             plan.Validate();
             token.ThrowIfCancellationRequested();
             string destination = FullPath(root, plan.Expected.Path);
-            if (File.Exists(destination))
+            if (GameStorage.AccessibleFile(destination))
             {
                 progress.Stage("Checking existing files");
                 try { Verify(root, plan.Expected, token); progress.Existing(plan.Expected.Size); return; }
                 catch (InvalidDataException) { /* Retain the original until a verified replacement exists. */ }
             }
             string partial = PartialPath(root, plan.Expected);
-            Directory.CreateDirectory(Path.GetDirectoryName(partial));
+            GameStorage.EnsureWritable(Path.GetDirectoryName(partial));
             progress.Stage("Checking partial download");
-            using (var stream = new FileStream(partial, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            using (var stream = GameStorage.OpenOrCreate(partial))
             {
                 long priorLength = stream.Length;
                 if (priorLength > plan.Expected.Size) { stream.SetLength(0); priorLength = 0; }
@@ -209,22 +209,20 @@ namespace SpiderManInstaller.SteamTransfer
                 }
             }
             token.ThrowIfCancellationRequested();
-            Directory.CreateDirectory(Path.GetDirectoryName(destination));
-            // Checked partials survive interruption; a destination is never an unverified partial.
-            // If interrupted between these moves, the next attempt uses the checked .part again.
+            GameStorage.EnsureWritable(Path.GetDirectoryName(destination));
             string backup = FullPath(root, ".steamkit-transfer/" + Path.GetFileNameWithoutExtension(partial) + ".previous");
-            if (File.Exists(destination))
+            if (GameStorage.AccessibleFile(destination))
             {
-                if (File.Exists(backup)) File.Delete(backup);
-                File.Move(destination, backup);
+                GameStorage.DeleteFile(backup);
+                GameStorage.MoveFile(destination, backup);
             }
-            try { File.Move(partial, destination); }
+            try { GameStorage.MoveFile(partial, destination); }
             catch
             {
-                if (!File.Exists(destination) && File.Exists(backup)) File.Move(backup, destination);
+                if (!GameStorage.AccessibleFile(destination) && GameStorage.AccessibleFile(backup)) GameStorage.MoveFile(backup, destination);
                 throw;
             }
-            if (File.Exists(backup)) File.Delete(backup);
+            GameStorage.DeleteFile(backup);
         }
     }
 }

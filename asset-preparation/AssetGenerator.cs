@@ -17,17 +17,10 @@ namespace AssetPreparation
 {
     public static class DiskSpace
     {
-#if WINDOWS_UWP
-        [System.Runtime.InteropServices.DllImport("kernel32.dll",CharSet=System.Runtime.InteropServices.CharSet.Unicode,SetLastError=true,ExactSpelling=true)]
-        [return:System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        static extern bool GetDiskFreeSpaceExW(string directory,out ulong available,out ulong total,out ulong free);
-#endif
         public static long Available(string directory)
         {
 #if WINDOWS_UWP
-            ulong available,total,free;
-            if(!GetDiskFreeSpaceExW(directory,out available,out total,out free))throw new IOException("Cannot query preparation folder free space (Windows error "+System.Runtime.InteropServices.Marshal.GetLastWin32Error()+")");
-            return checked((long)available);
+            return SpiderManInstaller.GameStorage.FreeBytes(directory);
 #else
             return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(directory))).AvailableFreeSpace;
 #endif
@@ -48,9 +41,98 @@ namespace AssetPreparation
             return b;
         }
         public static string Hash(byte[] b) { using(var h=SHA256.Create())return Hex(h.ComputeHash(b)); }
-        public static string FileHash(string p) { using(var f=File.OpenRead(p))using(var h=SHA256.Create())return Hex(h.ComputeHash(f)); }
+        public static string FileHash(string p) { using(var f=OpenRead(p))using(var h=SHA256.Create())return Hex(h.ComputeHash(f)); }
         static string Hex(byte[] b) { return BitConverter.ToString(b).Replace("-","").ToLowerInvariant(); }
         public static bool IsHash(string s) { return s.Length==64&&s.All(c=>c>='0'&&c<='9'||c>='a'&&c<='f'); }
+        public static Stream OpenRead(string p)
+        {
+#if WINDOWS_UWP
+            return SpiderManInstaller.GameStorage.OpenRead(p);
+#else
+            return new FileStream(p, FileMode.Open, FileAccess.Read, FileShare.Read);
+#endif
+        }
+        public static Stream CreateNew(string p, FileAccess access)
+        {
+#if WINDOWS_UWP
+            return SpiderManInstaller.GameStorage.OpenCreate(p, access);
+#else
+            return new FileStream(p, FileMode.CreateNew, access, FileShare.None);
+#endif
+        }
+        public static Stream Create(string p, FileAccess access)
+        {
+#if WINDOWS_UWP
+            return SpiderManInstaller.GameStorage.OpenCreateAlways(p, access);
+#else
+            return new FileStream(p, FileMode.Create, access, FileShare.None);
+#endif
+        }
+        public static bool FileAvailable(string p)
+        {
+#if WINDOWS_UWP
+            return SpiderManInstaller.GameStorage.AccessibleFile(p);
+#else
+            try { return File.Exists(p); } catch { return false; }
+#endif
+        }
+        public static long Length(string p)
+        {
+#if WINDOWS_UWP
+            return SpiderManInstaller.GameStorage.FileLength(p);
+#else
+            return new FileInfo(p).Length;
+#endif
+        }
+        public static void EnsureFolder(string p)
+        {
+            if (String.IsNullOrEmpty(p)) return;
+#if WINDOWS_UWP
+            SpiderManInstaller.GameStorage.EnsureWritable(p);
+#else
+            Directory.CreateDirectory(p);
+#endif
+        }
+        public static void MoveReplace(string source, string dest)
+        {
+#if WINDOWS_UWP
+            SpiderManInstaller.GameStorage.MoveFile(source, dest);
+#else
+            File.Move(source, dest);
+#endif
+        }
+        public static void ReplaceFile(string source, string dest, string backup)
+        {
+#if WINDOWS_UWP
+            SpiderManInstaller.GameStorage.ReplaceFile(source, dest, backup);
+#else
+            if (!String.IsNullOrEmpty(backup)) File.Replace(source, dest, backup);
+            else if (File.Exists(dest)) { File.Delete(dest); File.Move(source, dest); }
+            else File.Move(source, dest);
+#endif
+        }
+        public static void DeleteIfExists(string p)
+        {
+#if WINDOWS_UWP
+            SpiderManInstaller.GameStorage.DeleteFile(p);
+#else
+            try { if (File.Exists(p)) File.Delete(p); } catch { }
+#endif
+        }
+        public static FileAttributes? TryAttributes(string p)
+        {
+#if WINDOWS_UWP
+            if (SpiderManInstaller.GameStorage.NeedsBroker(p)) return null;
+#endif
+            try { if (Directory.Exists(p) || File.Exists(p)) return File.GetAttributes(p); }
+            catch { }
+            return null;
+        }
+        public static void Flush(Stream s)
+        {
+            var file = s as FileStream;
+            if (file != null) file.Flush(true); else s.Flush();
+        }
     }
 
     // One cached block, at most 4 MiB. Archive and block-table bounds are checked
@@ -58,11 +140,11 @@ namespace AssetPreparation
     public sealed class DsarReader : IDisposable
     {
         struct Block { public long Start,Offset;public int Raw,Packed; }
-        FileStream stream; Block[] blocks;long total;int cached=-1;byte[] cache;
+        Stream stream; Block[] blocks;long total;int cached=-1;byte[] cache;
         public long Length { get { return total; } }
         public DsarReader(string path)
         {
-            stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read);
+            stream=Bytes.OpenRead(path);
             try {
                 byte[] h=Bytes.Read(stream,32);
                 Bytes.Require(Bytes.U32(h,0)==0x52415344&&Bytes.U32(h,4)==0x10003,"Unsupported DSAR header");
@@ -102,14 +184,14 @@ namespace AssetPreparation
     public sealed class DsarWriter : IDisposable
     {
         const int BlockSize=262144;
-        readonly FileStream stream; readonly long total; readonly int count;
+        readonly Stream stream; readonly long total; readonly int count;
         readonly byte[] pending=new byte[BlockSize],packed=new byte[LZ4Codec.MaximumOutputSize(BlockSize)];
         int used,done;bool completed;
         public long Position { get;private set; }
         public DsarWriter(string path,long length)
         {
             Bytes.Require(length>0&&length<uint.MaxValue,"Unsupported output size");total=length;count=checked((int)((length+BlockSize-1)/BlockSize));
-            stream=new FileStream(path,FileMode.CreateNew,FileAccess.ReadWrite,FileShare.None);
+            stream=Bytes.CreateNew(path,FileAccess.ReadWrite);
             var w=new BinaryWriter(stream,Encoding.UTF8,true);w.Write(0x52415344u);w.Write(0x10003u);w.Write(count);w.Write(32+32*count);w.Write(total);w.Write(0L);
             stream.SetLength(32+32L*count);stream.Position=stream.Length;
         }
@@ -127,7 +209,7 @@ namespace AssetPreparation
         }
         public void Complete()
         {
-            Bytes.Require(Position==total&&!completed,"Incomplete archive");if(used!=0)FlushBlock();Bytes.Require(done==count,"Incomplete block table");stream.Flush(true);completed=true;
+            Bytes.Require(Position==total&&!completed,"Incomplete archive");if(used!=0)FlushBlock();Bytes.Require(done==count,"Incomplete block table");Bytes.Flush(stream);completed=true;
         }
         public void Dispose() { stream.Dispose(); }
     }
@@ -205,14 +287,14 @@ namespace AssetPreparation
         {
             inputRoot=Path.GetFullPath(inputRoot).TrimEnd(Path.DirectorySeparatorChar)+Path.DirectorySeparatorChar;output=Path.GetFullPath(output);
             Bytes.Require(!output.StartsWith(inputRoot,StringComparison.OrdinalIgnoreCase),"Output must be outside original game files");
-            Bytes.Require(!File.Exists(output)&&!File.Exists(output+".partial"),"Output already exists; no overwrite allowed");
+            Bytes.Require(!Bytes.FileAvailable(output)&&!Bytes.FileAvailable(output+".partial"),"Output already exists; no overwrite allowed");
             using(var rows=new StreamReader(recipe)) {
                 string[] header=(rows.ReadLine()??"").Split('\t');
                 Bytes.Require(header.Length==4&&(header[0]=="ASSETGEN_MIP256_V1"||header[0]=="ASSETGEN_TEXTURE_V2"||header[0]=="ASSETGEN_MODELLOD3_V1"||header[0]=="ASSETGEN_ZONE_V1"||header[0]=="ASSETGEN_DISTANT_V1")&&Bytes.IsHash(header[3]),"Unknown recipe");bool restore=header[0]=="ASSETGEN_TEXTURE_V2",model=header[0]=="ASSETGEN_MODELLOD3_V1",zone=header[0]=="ASSETGEN_ZONE_V1",distant=header[0]=="ASSETGEN_DISTANT_V1";
                 int count=int.Parse(header[1],CultureInfo.InvariantCulture);long total=long.Parse(header[2],CultureInfo.InvariantCulture);
                 Bytes.Require(count>0&&count<=100000&&total>0&&total<uint.MaxValue,"Recipe limit exceeded");
                 Bytes.Require(Bytes.FileHash(originalIndex??Path.Combine(inputRoot,"toc"))==header[3],"Wrong original game version");
-                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                Bytes.EnsureFolder(Path.GetDirectoryName(output));
                 Bytes.Require(DiskSpace.Available(Path.GetDirectoryName(output))>total+128L*1024*1024,"Insufficient output disk space");
                 string active=null;DsarReader reader=null;int completed=0;
                 try {
@@ -242,7 +324,7 @@ namespace AssetPreparation
                         }
                         Bytes.Require(completed==count,"Missing recipe rows");writer.Complete();
                     }
-                    cancel.ThrowIfCancellationRequested();File.Move(output+".partial",output);
+                    cancel.ThrowIfCancellationRequested();Bytes.MoveReplace(output+".partial",output);
                 } finally { if(reader!=null)reader.Dispose(); }
             }
         }

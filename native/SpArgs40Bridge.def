@@ -1,0 +1,7 @@
+LIBRARY SpArgs40
+EXPORTS
+    CreateFileA = HookCreateFileA @19
+    CreateFileW = HookCreateFileW @20
+    GetFileAttributesA = HookGetFileAttributesA @90
+    GetFileAttributesExW = HookGetFileAttributesExW @91
+    GetFileAttributesW = HookGetFileAttributesW @92

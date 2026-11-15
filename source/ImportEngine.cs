@@ -91,17 +91,17 @@ namespace SpiderManInstaller
                         if (!Digest(stream).Equals(row.Hash, StringComparison.OrdinalIgnoreCase))
                             throw new InvalidDataException("Unsupported Steam version: " + name);
                 }
-                Directory.CreateDirectory(destination);
+                GameStorage.EnsureWritable(destination);
                 long done = 0;
                 var buffer = new byte[1024 * 1024];
                 foreach (var row in expected)
                 {
                     cancel.ThrowIfCancellationRequested();
                     string target = System.IO.Path.Combine(destination, row.Path.Replace('/', System.IO.Path.DirectorySeparatorChar));
-                    Directory.CreateDirectory(System.IO.Path.GetDirectoryName(target));
+                    GameStorage.EnsureWritable(System.IO.Path.GetDirectoryName(target));
                     string partial = target + ".partial";
                     using (var src = all[prefix + row.Path].Open())
-                    using (var dst = new FileStream(partial, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    using (var dst = GameStorage.OpenCreate(partial, FileAccess.Write))
                     using (var sha = SHA256.Create())
                     {
                         int count;
@@ -121,13 +121,12 @@ namespace SpiderManInstaller
                             throw new InvalidDataException("Game file failed SHA-256 verification: " + row.Path);
                         dst.Flush();
                     }
-                    File.Move(partial, target);
+                    GameStorage.MoveFile(partial, target);
                 }
-                // A receipt distinguishes verified data from interrupted copies.
-                File.WriteAllText(System.IO.Path.Combine(destination, "import-receipt.txt"),
+                GameStorage.WriteText(System.IO.Path.Combine(destination, "import-receipt.txt"),
                     "Original Steam files verified.\r\nImported UTC: " + DateTime.UtcNow.ToString("o") +
                     "\r\nFiles: " + expected.Count + "\r\nBytes: " + total +
-                    "\r\n" + (languages == null ? "English audio" : LanguageImports.Description(expected, languages)) + "\r\nReady for game preparation.\r\n", Encoding.UTF8);
+                    "\r\n" + (languages == null ? "English audio" : LanguageImports.Description(expected, languages)) + "\r\nReady for game preparation.\r\n");
                 progress?.Invoke(total, total, "Import complete");
             }
         }

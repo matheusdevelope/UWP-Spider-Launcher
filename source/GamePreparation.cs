@@ -72,7 +72,7 @@ namespace SpiderManInstaller
         internal static void GeneratePipelines(string import,Action<string> progress,CancellationToken cancel)
         {
             string archives=Path.Combine(import,"asset_archive");
-            if(!Directory.Exists(archives))archives=Path.Combine(RuntimeRoot,"StartupContent","asset_archive");
+            if(!GameStorage.AccessibleDirectory(archives))archives=Path.Combine(RuntimeRoot,"StartupContent","asset_archive");
             AssetPreparation.PipelineGenerator.Run(import,archives,PipelineMap,PipelineOutput,progress,cancel);
         }
         internal static void EnsurePipelines(Action<string> progress,CancellationToken cancel)
@@ -91,11 +91,33 @@ namespace SpiderManInstaller
         {
             string journal=Path.Combine(RuntimeRoot,"preparation-source.txt");
             string resumable=File.Exists(journal)?File.ReadAllLines(journal).Skip(1).FirstOrDefault():null;
-            return Directory.GetDirectories(GameStorage.OpenRoot()).Where(p=>
-                File.Exists(Path.Combine(p,"import-receipt.txt")) &&
-                (Directory.Exists(Path.Combine(p,"asset_archive")) ||
-                 (String.Equals(p,resumable,StringComparison.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(RuntimeRoot,"StartupContent","asset_archive")))))
-                .OrderBy(p=>p).ToList();
+            var found=new List<string>();
+            foreach(string root in GameStorage.ImportSearchRoots())
+            {
+                AddImport(found,root,resumable);
+                if(GameStorage.NeedsBroker(root))continue;
+                try
+                {
+                    if(!Directory.Exists(root))continue;
+                    foreach(string child in Directory.GetDirectories(root))AddImport(found,child,resumable);
+                }
+                catch(IOException){}
+                catch(UnauthorizedAccessException){}
+            }
+            return found.OrderBy(p=>p,StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        static void AddImport(List<string> found,string path,string resumable)
+        {
+            if(String.IsNullOrEmpty(path)||found.Any(p=>p.Equals(path,StringComparison.OrdinalIgnoreCase)))return;
+            try
+            {
+                if(GameStorage.AccessibleFile(Path.Combine(path,"import-receipt.txt")) &&
+                    (GameStorage.AccessibleFile(Path.Combine(path,"asset_archive","toc")) ||
+                     (String.Equals(path,resumable,StringComparison.OrdinalIgnoreCase) && Directory.Exists(Path.Combine(RuntimeRoot,"StartupContent","asset_archive")))))
+                    found.Add(path);
+            }
+            catch(IOException){}
+            catch(UnauthorizedAccessException){}
         }
         internal static bool Ready()
         {
@@ -103,7 +125,10 @@ namespace SpiderManInstaller
             string receipt=File.Exists(p)?File.ReadLines(p).FirstOrDefault():null;
             if(Profile==GameVersionSupport.Newer&&receipt!=RecipeHash&&receipt!=PriorLoaderFixGeneratedHash)return false;
             return !File.Exists(Path.Combine(RuntimeRoot,"deletion-pending.txt")) && (receipt==RecipeHash || (CombinedRuntime.Enabled && receipt==PriorLoaderFixGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorVersionSupportGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorBundledDataPreparationGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorPriorityPairProbeGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorPriorityProbeGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorMemoryProbeGeneratedHash) || (CombinedRuntime.Enabled && receipt==PriorBindingBaselineGeneratedHash) || (CombinedRuntime.Enabled && (receipt==PriorWakeObservationGeneratedHash || receipt==PriorRecordingGeneratedHash)) || (CombinedRuntime.Enabled && receipt==PriorWaitTotalsGeneratedHash) || (CombinedRuntime.Enabled && (receipt==PriorCombinedGeneratedHash || receipt==PriorBackFixGeneratedHash)) || receipt==LegacyRecipeHash || receipt==PreviousGeneratedRecipeHash || receipt==OlderRecipe || receipt==OlderGeneratedRecipeHash) &&
-                new[]{"Defaults/engine-pool-capacities.txt","Defaults/spider-graphics-settings.bin","StartupContent/SpiderManNativeStartup.exe","StartupContent/SpiderManStartupModule.dll","StartupContent/asset_archive/toc"}.All(n=>File.Exists(Path.Combine(CombinedRuntime.Enabled&&n!="StartupContent/asset_archive/toc"&&n!="StartupContent/SpiderManStartupModule.dll"?Bundle:RuntimeRoot,n)));
+                new[]{"Defaults/engine-pool-capacities.txt","Defaults/spider-graphics-settings.bin","StartupContent/SpiderManNativeStartup.exe","StartupContent/SpiderManStartupModule.dll","StartupContent/asset_archive/toc"}.All(n=>{
+                    string path=Path.Combine(CombinedRuntime.Enabled&&n!="StartupContent/asset_archive/toc"&&n!="StartupContent/SpiderManStartupModule.dll"?Bundle:RuntimeRoot,n);
+                    return n.IndexOf("asset_archive",StringComparison.OrdinalIgnoreCase)>=0?GameStorage.AccessibleFile(path):File.Exists(path);
+                });
         }
         static byte[] Hex(string s)
         {
@@ -149,7 +174,7 @@ namespace SpiderManInstaller
             }
             if(CombinedRuntime.Enabled)rows=CombinedRuntime.DataPreparationFiles(rows,cancel);
             string archives=Path.Combine(import,"asset_archive");
-            if(!Directory.Exists(archives))archives=Path.Combine(RuntimeRoot,"StartupContent","asset_archive");
+            if(!GameStorage.AccessibleDirectory(archives))archives=Path.Combine(RuntimeRoot,"StartupContent","asset_archive");
             LanguageImports.ApplyToPreparation(archives,rows,LoadLanguagePacks());
             var p=JsonObject.Parse(File.ReadAllText(Path.Combine(Support,"ModulePatch.json")));
             var patch=new ModulePatch { SourceSize=(long)p.GetNamedNumber("source_size"),ResultSize=(long)p.GetNamedNumber("result_size"),SourceHash=p.GetNamedString("source_sha256"),ResultHash=p.GetNamedString("result_sha256"),Append=Hex(p.GetNamedString("append_hex")),Replacements=new List<ModuleReplacement>() };
@@ -157,18 +182,29 @@ namespace SpiderManInstaller
             { var o=v.GetObject();patch.Replacements.Add(new ModuleReplacement { Offset=(long)o.GetNamedNumber("offset"),Before=Hex(o.GetNamedString("before")),After=Hex(o.GetNamedString("after")) }); }
             long extra=rows.Where(r=>r.Origin!="import" || !r.Source.StartsWith("asset_archive/",StringComparison.OrdinalIgnoreCase)).Sum(r=>r.Size);
             long generatedUpperBound=File.ReadLines(Path.Combine(Bundle,"AssetRecipes","batch.tsv")).Skip(1).Sum(line=>long.Parse(line.Split('\t')[3],System.Globalization.CultureInfo.InvariantCulture));
-            long needed=checked(extra+generatedUpperBound+640L*1024*1024);
-            if(GameStorage.FreeBytes(RuntimeRoot)<needed)throw new IOException("Preparation needs "+(needed/1073741824.0).ToString("F1")+" GiB free, including generated assets and staging. It reuses the imported archives.");
+            long generatedNeed=checked(generatedUpperBound+640L*1024*1024);
+            long runtimeNeed=checked(extra+256L*1024*1024);
+            bool keepOnSelectedDrive=!GameStorage.SameVolume(import,RuntimeRoot);
+            if(keepOnSelectedDrive)
+            {
+                if(GameStorage.FreeBytes(import)<generatedNeed)throw new IOException("Preparation needs "+(generatedNeed/1073741824.0).ToString("F1")+" GiB free on "+GameStorage.Describe(import)+" for generated assets. Game archives stay on that drive.");
+                if(GameStorage.FreeBytes(RuntimeRoot)<runtimeNeed)throw new IOException("Preparation needs "+(runtimeNeed/1073741824.0).ToString("F1")+" GiB free on internal storage for runtime files. Game archives stay on the SSD.");
+            }
+            else
+            {
+                long needed=checked(extra+generatedNeed);
+                if(GameStorage.FreeBytes(RuntimeRoot)<needed)throw new IOException("Preparation needs "+(needed/1073741824.0).ToString("F1")+" GiB free, including generated assets and staging. It reuses the imported archives.");
+            }
             // Check the original index even on a resumed operation after archive relocation.
             var tocRow=JsonArray.Parse(File.ReadAllText(Path.Combine(Bundle,"SteamFiles.json"))).Select(v=>v.GetObject()).Single(o=>o.GetNamedString("path")=="asset_archive/toc");
             string toc=Path.Combine(import,"asset_archive","toc");
-            if(!File.Exists(toc))toc=Path.Combine(RuntimeRoot,"original-asset-toc");
-            if(!File.Exists(toc))toc=Path.Combine(RuntimeRoot,"StartupContent","asset_archive","toc");
-            using(var f=File.OpenRead(toc))if(f.Length!=(long)tocRow.GetNamedNumber("size") || ImportEngine.Digest(f)!=tocRow.GetNamedString("sha256"))throw new IOException("Original asset index failed verification");
+            if(!GameStorage.AccessibleFile(toc))toc=Path.Combine(RuntimeRoot,"original-asset-toc");
+            if(!GameStorage.AccessibleFile(toc))toc=Path.Combine(RuntimeRoot,"StartupContent","asset_archive","toc");
+            using(var f=GameStorage.OpenRead(toc))if(f.Length!=(long)tocRow.GetNamedNumber("size") || ImportEngine.Digest(f)!=tocRow.GetNamedString("sha256"))throw new IOException("Original asset index failed verification");
             // Generate in a separate persistent directory before moving any
             // imported archive. Each complete output is verified on resume.
             GeneratePipelines(import,progress,cancel);
-            string generatedRoot=Path.Combine(RuntimeRoot,"GeneratedPreparation");
+            string generatedRoot=keepOnSelectedDrive?Path.Combine(import,"GeneratedPreparation"):Path.Combine(RuntimeRoot,"GeneratedPreparation");
             var generated=AssetPreparation.AssetBatch.Run(archives,toc,Path.Combine(Bundle,"AssetRecipes"),Path.Combine(generatedRoot,"asset_archive"),progress,cancel);
             foreach(var file in generated)
             {

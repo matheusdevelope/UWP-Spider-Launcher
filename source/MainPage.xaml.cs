@@ -6,9 +6,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Data.Json;
 using Windows.Storage;
+using Windows.Storage.AccessCache;
+using Windows.Storage.Pickers;
 using Windows.UI.Core;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.UI.Xaml.Media.Imaging;
 using QRCoder;
 using SpiderManInstaller.SteamTransfer;
@@ -52,7 +55,8 @@ namespace SpiderManInstaller
                 UpdateResponsiveLayout();
                 RefreshStorage();
                 RefreshPreparation();
-                if(CombinedRuntime.Enabled)CombinedRuntime.Log("latest_launcher_ui_loaded version=0.6.0.52 play_enabled="+PlayButton.IsEnabled);
+                DiagnosticLog.Line("ui_loaded version=0.6.0.58 combined="+(CombinedRuntime.Enabled?1:0)+" local="+DiagnosticLog.Folder);
+                if(CombinedRuntime.Enabled)CombinedRuntime.Log("latest_launcher_ui_loaded version=0.6.0.58 play_enabled="+PlayButton.IsEnabled);
                 ShowRuntimeSetupResult();
                 (PlayButton.IsEnabled?PlayButton:SteamTile).Focus(FocusState.Programmatic);
 
@@ -71,6 +75,8 @@ namespace SpiderManInstaller
             DeviceLabel.Visibility=ActualWidth<760?Visibility.Collapsed:Visibility.Visible;
             WifiDescription.Visibility=compact?Visibility.Collapsed:Visibility.Visible;
             WifiActions.Orientation=ActualWidth<700?Orientation.Vertical:Orientation.Horizontal;
+            UsbActions.Orientation=ActualWidth<700?Orientation.Vertical:Orientation.Horizontal;
+            StorageActions.Orientation=ActualWidth<900?Orientation.Vertical:Orientation.Horizontal;
             WifiInfo.MaxLines=compact?1:2;
             double innerHeight=Math.Max(0,InstallCard.ActualHeight-InstallCard.Padding.Top-InstallCard.Padding.Bottom);
             if(innerHeight<=0)return;
@@ -137,18 +143,52 @@ namespace SpiderManInstaller
         void Refresh_Click(object sender,RoutedEventArgs e){RefreshPreparation();}
         void RefreshStorage()
         {
-            try
-            {
-                var destination=GameStorage.OpenRoot();
-                DestinationInfo.Text="Game storage: "+(GameStorage.FreeBytes(destination)/1073741824.0).ToString("F2")+" GiB free";
-                HomeStorage.Text=(GameStorage.FreeBytes(destination)/1073741824.0).ToString("F1")+" GiB free in game storage";
-                long appFree=GameStorage.FreeBytes(ApplicationData.Current.LocalFolder.Path);
-                DestinationInfo.Text+="\nApp-data storage: "+(appFree/1073741824.0).ToString("F2")+" GiB free";
-                if(appFree<512L*1024*1024)DestinationInfo.Text+="\nApp-data space is low. Back up and clear old diagnostic logs before updates.";
-            }
+            string root=GameStorage.ChosenRoot();
+            try{DestinationInfo.Text=GameStorage.StatusLine();}
             catch(Exception ex){DestinationInfo.Text="Storage unavailable: "+ex.Message;}
+            try{HomeStorage.Text=(GameStorage.FreeBytes(root)/1073741824.0).ToString("F1")+" GiB free · "+GameStorage.Describe(root);}
+            catch{HomeStorage.Text=GameStorage.Describe(root)+": connect the SSD or choose Internal storage.";}
         }
         void StorageRefresh_Click(object sender,RoutedEventArgs e){if(!busy)RefreshStorage();}
+        void UseInternalStorage_Click(object sender,RoutedEventArgs e)
+        {
+            if(busy)return;
+            try{GameStorage.UseInternal();RefreshStorage();Status.Text="Game storage set to internal Xbox storage. Existing SSD files were not moved.";}
+            catch(Exception ex){Status.Text="Internal storage: "+ex.Message;}
+        }
+        async void UseExternalStorage_Click(object sender,RoutedEventArgs e)
+        {
+            if(busy)return;
+            try
+            {
+                string path=await GameStorage.UseExternalDefaultAsync();
+                RefreshStorage();
+                Status.Text="Game storage set to "+path+" ("+GameStorage.Describe(path)+"). Put the Steam folder there or choose Use selected folder on the Install tab.";
+            }
+            catch(Exception ex){Status.Text="External SSD: "+ex.Message;}
+        }
+        async void BrowseStorage_Click(object sender,RoutedEventArgs e){await BrowseGameFolder(false);}
+        async void BrowseGameFolder_Click(object sender,RoutedEventArgs e){await BrowseGameFolder(true);}
+        async Task BrowseGameFolder(bool useInPlace)
+        {
+            if(busy)return;
+            try
+            {
+                var picker=new FolderPicker();
+                picker.SuggestedStartLocation=PickerLocationId.ComputerFolder;
+                picker.FileTypeFilter.Add("*");
+                var folder=await picker.PickSingleFolderAsync();
+                if(folder==null){Status.Text="No folder chosen.";}
+                else
+                {
+                    GameStorage.ApplyPickedFolder(folder);
+                    RefreshStorage();
+                    if(useInPlace && GameStorage.LooksLikeGame(folder.Path))await UseFolder(folder);
+                    else Status.Text="Game storage set to "+folder.Path+" ("+GameStorage.Describe(folder.Path)+").";
+                }
+            }
+            catch(Exception ex){Status.Text="Folder picker: "+ex.Message;}
+        }
         async void DeleteGame_Click(object sender,RoutedEventArgs e)
         {
             if(busy || (receiver!=null && receiver.Uploading)){CleanupStatus.Text="Finish or stop the current transfer first.";return;}
@@ -160,7 +200,7 @@ namespace SpiderManInstaller
                 var plan=await Task.Run(()=>GamePreparation.CleanupPlan());
                 var dialog=new ContentDialog {
                     Title="Delete installed game files?",
-                    Content="Remove "+(plan.Bytes/1073741824.0).ToString("F2")+" GiB in "+plan.Count+" files from this launcher's prepared game?\n\nClose Spider-Man before continuing. This cannot be undone; import and prepare the game again to play.\n\nYour saves, runtime app, USB originals and separate import copies are kept.",
+                    Content="Remove "+(plan.Bytes/1073741824.0).ToString("F2")+" GiB in "+plan.Count+" files from this launcher's prepared game?"+(plan.ArchivesLinked?"\n\nGame archives stay on the SSD; only the internal runtime link and prepared files are removed.":"")+"\n\nClose Spider-Man before continuing. This cannot be undone; import and prepare the game again to play.\n\nYour saves, runtime app, USB originals and separate import copies are kept.",
                     PrimaryButtonText="Delete game files",CloseButtonText="Keep game",DefaultButton=ContentDialogButton.Close,RequestedTheme=ElementTheme.Dark
                 };
                 if(await dialog.ShowAsync()!=ContentDialogResult.Primary){CleanupStatus.Text="Nothing deleted.";return;}
@@ -198,21 +238,29 @@ namespace SpiderManInstaller
             string outcome;
             try
             {
-                if(!await ConfirmExperimentalVersion(GameVersionSupport.Inspect(Path.Combine(source,"Spider-Man.exe")))){outcome="Preparation cancelled; original files preserved.";return;}
+                var profile=await Task.Run(()=>GameVersionSupport.Inspect(Path.Combine(source,"Spider-Man.exe")));
+                if(!await ConfirmExperimentalVersion(profile)){outcome="Preparation cancelled; original files preserved.";return;}
+                DiagnosticLog.Line("prepare start import="+source);
                 PreparationStatus.Text="Verifying game archives…";
                 var token=cancellation.Token;
                 await Task.Run(()=>GamePreparation.Prepare(source,text=>
                 {
-                    File.WriteAllText(Path.Combine(GameStorage.OpenRoot(),"preparation-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+text);
+                    DiagnosticLog.Line("prepare "+text);
+                    GameStorage.WriteText(Path.Combine(ApplicationData.Current.LocalFolder.Path,"preparation-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+text);
                     var ignored=Dispatcher.RunAsync(CoreDispatcherPriority.Low,()=>{if(busy){PreparationStatus.Text=text;Status.Text=text;}});
                 },token));
                 outcome="Game files prepared and verified. Press Play to check game-app setup.";
+                DiagnosticLog.Line("prepare ok");
             }
             catch(OperationCanceledException){outcome="Preparation cancelled. Select the same import to resume; its archives are preserved.";}
-            catch(Exception ex){outcome="Preparation stopped: "+ex.Message;}
+            catch(Exception ex)
+            {
+                DiagnosticLog.Error("prepare",ex);
+                outcome="Preparation stopped: "+ex.Message+" — Settings → Copy debug log";
+            }
             finally{cancellation.Dispose();cancellation=null;busy=false;Progress.IsIndeterminate=false;CancelButton.Visibility=Visibility.Collapsed;}
             RefreshPreparation();PreparationStatus.Text=outcome;Status.Text=outcome;
-            try{File.WriteAllText(Path.Combine(GameStorage.OpenRoot(),"preparation-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+outcome);}catch{}
+            try{GameStorage.WriteText(Path.Combine(ApplicationData.Current.LocalFolder.Path,"preparation-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+outcome);}catch{}
         }
         async void Play_Click(object sender,RoutedEventArgs e){await PlayGame();}
         async Task RepairRuntime(bool playAfter=false)
@@ -228,7 +276,7 @@ namespace SpiderManInstaller
                 outcome=CombinedRuntime.Enabled?(playAfter?"Game launch requested.":"Included runtime verified; missing startup settings restored."):(playAfter?"Repairing the game app. It will launch automatically when startup settings are ready.":"Restoring missing startup settings...");
                 if(!CombinedRuntime.Enabled)repairTimer.Start();
             }
-            catch(Exception ex){outcome="Game app installation stopped (0x"+ex.HResult.ToString("X8")+"): "+ex.Message;}
+            catch(Exception ex){DiagnosticLog.Error("repair",ex);outcome="Game app installation stopped (0x"+ex.HResult.ToString("X8")+"): "+ex.Message;}
             finally{busy=false;Progress.IsIndeterminate=false;}
             File.WriteAllText(Path.Combine(ApplicationData.Current.LocalFolder.Path,"runtime-repair-result.txt"),DateTime.UtcNow.ToString("o")+"\n"+outcome);
             RefreshPreparation();Status.Text=outcome;ShowRuntimeSetupResult();
@@ -258,9 +306,9 @@ namespace SpiderManInstaller
                     else PreparationStatus.Text=started?"Game launch requested.":"Setup completed, but Xbox could not open the game. Retry Play or check Dev Home. Your game files are preserved.";
                 }
                 if(repair)PreparationStatus.Text="Game app missing or incomplete. Starting automatic repair...";
-                File.WriteAllText(Path.Combine(GameStorage.OpenRoot(),"launch-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+PreparationStatus.Text);
+                GameStorage.WriteText(Path.Combine(ApplicationData.Current.LocalFolder.Path,"launch-status.txt"),DateTime.UtcNow.ToString("o")+"\n"+PreparationStatus.Text);
             }
-            catch(Exception ex){PreparationStatus.Text="Launch: "+ex.Message;}
+            catch(Exception ex){DiagnosticLog.Error("play",ex);PreparationStatus.Text="Launch: "+ex.Message+" — Settings → Copy debug log";}
             finally
             {
                 if(cancellation!=null){cancellation.Dispose();cancellation=null;}
@@ -402,16 +450,18 @@ namespace SpiderManInstaller
                 foreach (var drive in drives)
                 {
                     await AddFolderCandidate(drive, drive.Name);
+                    await AddDefaultDump(drive);
                     foreach (var folder in await drive.GetFoldersAsync())
                         await AddFolderCandidate(folder, drive.Name + " / " + folder.Name);
                     foreach (var file in await drive.GetFilesAsync())
                         if (file.FileType.Equals(".zip", StringComparison.OrdinalIgnoreCase))
                         { sources.Add(file); ArchiveList.Items.Add("ZIP: " + drive.Name + " / " + file.Name); }
                 }
+                await AddPathCandidate(GameStorage.ExternalDefault, @"E:\dumps\SpiderMan");
                 ArchiveList.SelectedIndex = sources.Count == 0 ? -1 : 0;
-                Status.Text = sources.Count == 0 ? "No game folder or ZIP found. Put the Steam game folder directly on the USB drive, then scan again. The folder must contain asset_archive and Spider-Man.exe." : sources.Count + " source(s) found. Select a folder or ZIP, then Import selected.";
+                Status.Text = sources.Count == 0 ? "No game folder or ZIP found. Put the Steam game folder at E:\\dumps\\SpiderMan (or any USB folder with asset_archive and Spider-Man.exe), then scan again." : sources.Count + " source(s) found. Select a folder, then Use selected folder to play from the SSD, or Copy to game storage.";
             }
-            catch (Exception ex) { Status.Text = "USB scan: " + ex.Message; }
+            catch (Exception ex) { DiagnosticLog.Error("usb-scan", ex); Status.Text = "USB scan: " + ex.Message; }
             finally { busy = false; }
         }
         async Task AddFolderCandidate(StorageFolder candidate, string label)
@@ -419,10 +469,31 @@ namespace SpiderManInstaller
             try
             {
                 await candidate.GetFolderAsync("asset_archive");
+                if (sources.OfType<StorageFolder>().Any(f => !String.IsNullOrEmpty(f.Path) && f.Path.Equals(candidate.Path, StringComparison.OrdinalIgnoreCase))) return;
                 sources.Add(candidate); ArchiveList.Items.Add("Folder: " + label);
             }
             catch (FileNotFoundException) { }
             catch (UnauthorizedAccessException) { }
+        }
+        async Task AddDefaultDump(StorageFolder drive)
+        {
+            try
+            {
+                var dumps = await drive.GetFolderAsync("dumps");
+                await AddFolderCandidate(dumps, drive.Name + " / dumps");
+                await AddFolderCandidate(await dumps.GetFolderAsync("SpiderMan"), drive.Name + " / dumps / SpiderMan");
+            }
+            catch (FileNotFoundException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+        async Task AddPathCandidate(string path, string label)
+        {
+            try
+            {
+                if (!GameStorage.LooksLikeGame(path)) return;
+                await AddFolderCandidate(await StorageFolder.GetFolderFromPathAsync(path), label);
+            }
+            catch (Exception) { }
         }
         async void Import_Click(object sender, RoutedEventArgs e)
         {
@@ -432,6 +503,39 @@ namespace SpiderManInstaller
             var folder = sources[index] as StorageFolder;
             if (folder != null) await ImportFolder(folder);
             else await ImportFile((StorageFile)sources[index]);
+        }
+        async void UseFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (busy) return;
+            int index = ArchiveList.SelectedIndex;
+            if (index < 0 || index >= sources.Count) { Status.Text = "Find and select a game folder first."; return; }
+            var folder = sources[index] as StorageFolder;
+            if (folder == null) { Status.Text = "Use selected folder works on a game folder, not a ZIP. Choose Copy to game storage for ZIPs."; return; }
+            await UseFolder(folder);
+        }
+        async Task UseFolder(StorageFolder folder)
+        {
+            if (receiver != null && receiver.Uploading) { Status.Text = "Wait for the Wi-Fi upload to finish first."; return; }
+            if (String.IsNullOrEmpty(folder.Path)) { Status.Text = "Xbox did not expose this folder's path. Copy the game to E:\\dumps\\SpiderMan on a PC."; return; }
+            StopWifi();
+            busy = true; reportActive = true; lastUpdate = DateTime.MinValue;
+            cancellation = new CancellationTokenSource();
+            try
+            {
+                GameStorage.ApplyPickedFolder(folder);
+                GameStorage.RegisterImport(folder.Path);
+                BeginImport(); Progress.Value = 0; Status.Text = "Verifying the game folder in place…";
+                var expected = await LoadExpected();
+                var source = new UsbFolderSource(folder);
+                var token = cancellation.Token;
+                await Task.Run(() => FolderImportEngine.VerifyInPlaceAsync(source, folder.Path, expected, Report, token, GamePreparation.LoadLanguagePacks()));
+                CompleteImport();
+                Status.Text = "Game folder verified on " + GameStorage.Describe(folder.Path) + ".\n" + folder.Path + "\nFiles were not copied. Choose Prepare game to enable Play.";
+                TransferStats.Text = "Verified in place — choose Prepare game.";
+            }
+            catch (OperationCanceledException) { reportActive = false; Status.Text = "Verification cancelled. The SSD folder was not changed."; }
+            catch (Exception ex) { DiagnosticLog.Error("use-folder", ex); reportActive = false; Status.Text = "Folder verification stopped: " + ex.Message + "\nYour USB files were not changed."; }
+            finally { reportActive = false; cancellation.Dispose(); cancellation = null; busy = false; CancelButton.Visibility = Visibility.Collapsed; RefreshPreparation(); RefreshStorage(); }
         }
         async void Incoming_Click(object sender, RoutedEventArgs e)
         {
@@ -454,10 +558,10 @@ namespace SpiderManInstaller
                 long free = GameStorage.FreeBytes(local);
                 destination = Path.Combine(local, "SteamImport-" + Guid.NewGuid().ToString("N"));
                 var token = cancellation.Token;
-                using (var input = file != null ? await file.OpenStreamForReadAsync() : File.OpenRead(receivedPath))
+                using (var input = file != null ? await file.OpenStreamForReadAsync() : GameStorage.OpenRead(receivedPath))
                     await Task.Run(() => ImportEngine.Import(input, destination, expected, free, Report, token, GamePreparation.LoadLanguagePacks()));
                 if (receivedPath != null && receivedPath.Equals(Path.Combine(local, "received-game.zip"), StringComparison.OrdinalIgnoreCase))
-                    File.Delete(receivedPath);
+                    GameStorage.DeleteFile(receivedPath);
                 CompleteImport(); Status.Text = "Steam files copied and verified.\n" + destination + "\nChoose Prepare game below to enable Play.";
                 Progress.Value = 100;
             }
@@ -594,6 +698,53 @@ namespace SpiderManInstaller
             cancellation?.Cancel(); StopWifi();
             CancelButton.Visibility=Visibility.Collapsed;
             WifiInfo.Text = "Wi-Fi receiver stopped.";
+        }
+        async void CopyDebugLog_Click(object sender, RoutedEventArgs e)
+        {
+            string text = DiagnosticLog.ReadAll();
+            try
+            {
+                var data = new DataPackage();
+                data.SetText(text);
+                Clipboard.SetContent(data);
+                DebugLogStatus.Text = "Copied "+text.Length+" characters. Paste here in chat, or pull LocalState\\launcher-debug.log from Device Portal.";
+            }
+            catch (Exception ex)
+            {
+                DebugLogStatus.Text = "Clipboard failed: "+ex.Message+". Use Show last error or Device Portal LocalState\\launcher-debug.log";
+            }
+            await ShowDebugText("Debug log", text);
+        }
+        async void ShowLastError_Click(object sender, RoutedEventArgs e)
+        {
+            string text = "(no last error yet)";
+            try
+            {
+                string path = Path.Combine(DiagnosticLog.Folder ?? "", "launcher-debug-last.txt");
+                if (File.Exists(path)) text = File.ReadAllText(path);
+            }
+            catch (Exception ex) { text = ex.ToString(); }
+            await ShowDebugText("Last error", text);
+        }
+        async Task ShowDebugText(string title, string text)
+        {
+            var box = new TextBox
+            {
+                Text = text ?? "",
+                IsReadOnly = true,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.Wrap,
+                FontSize = 12,
+                MinHeight = 220
+            };
+            await new ContentDialog
+            {
+                Title = title,
+                Content = new ScrollViewer { Content = box, MaxHeight = 420 },
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Close,
+                RequestedTheme = ElementTheme.Dark
+            }.ShowAsync();
         }
     }
     static class StorageSpace
