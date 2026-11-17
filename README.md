@@ -6,11 +6,30 @@
 
 An unofficial, experimental UWP launcher for Xbox Developer Mode. Transfer a supported game folder from USB or over your local network, or sign in to Steam to download the supported version you own.
 
-[Getting started](docs/GETTING-STARTED.md) · [SSD in-place](docs/SSD-IN-PLACE.md) · [Downloads](https://github.com/BBCPrince/UWP-Spider-Launcher/releases) · [Build from source](release/REBUILD-FROM-SOURCE.md) · [Third-party notices](THIRD-PARTY-NOTICES.txt)
+[Getting started](docs/GETTING-STARTED.md) · [SSD in-place](docs/SSD-IN-PLACE.md) · [Releases](https://github.com/matheusdevelope/UWP-Spider-Launcher/releases) · [Build from source](release/REBUILD-FROM-SOURCE.md) · [Third-party notices](THIRD-PARTY-NOTICES.txt)
 
 > **Latest source: 0.6.0.58**
 >
-> This repository contains launcher and preparation source. Game files, native compatibility-runtime binaries/source, and complete playable installers are not included in the source tree. Existing release downloads are separate and may have a different version; this source update does not publish a new installer.
+> This repository contains launcher and preparation source. Game files, native compatibility-runtime binaries/source, and signing private keys are not included in the source tree. Installable packages are published as [GitHub Releases](https://github.com/matheusdevelope/UWP-Spider-Launcher/releases) (`.msix` + `.cer`).
+
+## Install a release
+
+Xbox Developer Mode will not install a self-signed package until the matching certificate is trusted. Each release includes both files; you need both.
+
+1. Put the Xbox in **Developer Mode** and open **Dev Home**. Note the Device Portal address (usually `https://<xbox-ip>:11443`).
+2. From a PC on the same network, open Device Portal in a browser.
+3. Download both assets from the [Releases](https://github.com/matheusdevelope/UWP-Spider-Launcher/releases) page:
+   - `UWP-Spider-Launcher-<version>-x64-Private-Test.msix` — the app package
+   - `UWP-Spider-Launcher-<version>.cer` — the signing certificate
+4. In Device Portal, install the app and select **both** files: the `.msix` as the package and the `.cer` as the certificate. If the portal has a separate certificate step, add the `.cer` first, then the `.msix`.
+5. In Dev Home, set this package to **Game** if the console would otherwise treat it as an App (Xbox UWP apps are limited to 5 GiB of memory). Device Portal also has **Settings → Preferences → Treat UWP apps as games by default**.
+6. Launch **UWP Spider Launcher** from Dev Home or My games & apps.
+
+The combined release is a single package (launcher + native host). You do not install a second game app. After it is installed, follow [Getting started](docs/GETTING-STARTED.md) to import or keep the game on USB/SSD, then **Prepare game** and **Play**.
+
+Updating: installing a newer release with the same publisher over the existing package keeps saves and prepared game data. Always install the `.cer` that belongs to that `.msix`; a certificate from a different release will not match.
+
+If install fails with a certificate or signature error, the `.cer` was skipped or does not match the `.msix`. Do not rename or mix files from two releases.
 
 ## Bring your own files
 

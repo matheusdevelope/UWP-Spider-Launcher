@@ -148,7 +148,10 @@ namespace SpiderManInstaller
         {
             selectedProfile=GameVersionSupport.Inspect(Path.Combine(import,"Spider-Man.exe"));
             try {PrepareCore(import,progress,cancel);File.WriteAllText(Path.Combine(RuntimeRoot,"game-version.txt"),selectedProfile);
-                SteamLanguages.ApplyImportPreference(import,Path.Combine(RuntimeRoot,"StartupContent"),LoadLanguagePacks());}
+                var languageRoot=Path.Combine(RuntimeRoot,"StartupContent");
+                var languageOptions=GameLanguageSettings.FromPacks(LoadLanguagePacks());
+                GameLanguageSettings.PublishInstalled(languageRoot,import,languageOptions);
+                SteamLanguages.ApplyImportPreference(import,languageRoot,LoadLanguagePacks());}
             finally {selectedProfile=null;}
         }
         static void PrepareCore(string import,Action<string> progress,CancellationToken cancel)

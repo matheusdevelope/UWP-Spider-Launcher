@@ -4,7 +4,7 @@ UWP Spider Launcher imports and prepares your own supported game files. It does 
 
 ## Availability
 
-The current launcher source is 0.6.0.58. This source update does not publish a new installer or runtime bundle. Existing release downloads may differ from the current source. The instructions below describe the workflow once matching launcher and runtime components are installed.
+The current launcher source is 0.6.0.58. Installable packages are on [Releases](https://github.com/matheusdevelope/UWP-Spider-Launcher/releases) as a matching `.msix` and `.cer`. Install both through Xbox Device Portal; see [Install a release](../README.md#install-a-release). The steps below are the workflow after the launcher is installed.
 
 ## Choose an import method
 

@@ -10,6 +10,8 @@
 - Combined Xbox packages embed .NET Native and VC++ runtime DLLs (`SharedLibrary.dll`, `mrt100_app.dll`, UWP and desktop CRT). Symlink APIs are resolved at runtime so the package can start on Developer Mode.
 - Prepare skips SHA-256 of the large archives when `import-receipt.txt` exists and sizes still match. Settings → Copy debug log writes `LocalState\launcher-debug.log`.
 - Storage cleanup removes the internal link and prepared host files; the SSD game folder is kept.
+- In-place USB/SSD verify skips optional voice packs that are not on the drive. Xbox StorageFolder used to report a missing `a00s035.fr` (French) as a hard read error.
+- The in-game voice-over picker follows Steam's installed-language list, not the presence of `a00s*` files. Prepare publishes `steam_settings/supported_languages.txt` from packs actually on the SSD (for example English + Portuguese Brazil). Applying a language also updates `steam_emu.ini` `Language=` when that file is present.
 - Design notes: [SSD in-place](../docs/SSD-IN-PLACE.md).
 
 Validation: a combined private test build prepared a 4.0630 dump from `E:\dumps\SpiderMan` on Xbox Series X. The menu opened, New Game loaded, and the user confirmed a playable session. This confirms SSD in-place for that dump, not full-game stability.

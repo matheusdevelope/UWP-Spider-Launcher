@@ -34,6 +34,8 @@ namespace SpiderManInstaller
             catch (OperationCanceledException) { throw; }
             catch (Exception error)
             {
+                if (ImportEngine.MissingFile(error))
+                    throw new FileNotFoundException("USB file not found: " + relativePath, relativePath, error);
                 throw new IOException("Cannot read USB file " + relativePath + ". Use Find files, then Use selected folder. " + error.Message, error);
             }
         }

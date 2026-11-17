@@ -66,9 +66,8 @@ namespace SpiderManInstaller
                         lengths.Add(p.File.Path, input.Length);
                     }
                 }
-                catch (FileNotFoundException) { }
-                catch (DirectoryNotFoundException) { }
-                // Access failures, removal of USB, and cancellation are not missing packs.
+                catch (Exception error) when (ImportEngine.MissingFile(error)) { }
+                // Access denied, USB removal, and cancellation are not missing packs.
             }
             return Select(original, packs, path => lengths.ContainsKey(path) ? (long?)lengths[path] : null);
         }

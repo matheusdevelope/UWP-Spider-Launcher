@@ -36,19 +36,77 @@ namespace SpiderManInstaller
                     p.Archive.Contains(":") || p.Archive.Contains("\\") || p.Archive.Contains("/") || p.Archive.Contains("..") || p.Size <= 0)
                     throw new IOException("Invalid game language catalogue.");
         }
-        internal static List<GameLanguageOption> Installed(string gameRoot, IList<GameLanguageOption> catalogue)
+        static string ImportRoot()
+        {
+            try
+            {
+                string journal = Path.Combine(GamePreparation.RuntimeRoot, "preparation-source.txt");
+                if (File.Exists(journal)) return File.ReadLines(journal).Skip(1).FirstOrDefault();
+            }
+            catch (IOException) { }
+            return null;
+        }
+        internal static List<GameLanguageOption> Installed(string gameRoot, IList<GameLanguageOption> catalogue, string importRoot = null)
         {
             Validate(catalogue);
+            if (String.IsNullOrEmpty(importRoot)) importRoot = ImportRoot();
+            string archives = Path.Combine(gameRoot, "asset_archive");
+            CheckPath(archives);
             var result = new List<GameLanguageOption>();
             foreach (var p in catalogue)
             {
-                string file = Path.Combine(gameRoot, "asset_archive", p.Archive);
-                CheckPath(file);
-                // Import and preparation verify the complete archive hashes. Do
-                // not reread multi-gigabyte voice packs when opening Settings.
-                if (File.Exists(file) && new FileInfo(file).Length == p.Size) result.Add(p);
+                if (ArchivePresent(Path.Combine(archives, p.Archive), p.Size) ||
+                    (!String.IsNullOrEmpty(importRoot) && ArchivePresent(Path.Combine(importRoot, "asset_archive", p.Archive), p.Size)))
+                    result.Add(p);
             }
             return result;
+        }
+        static bool ArchivePresent(string file, long size)
+        {
+            try { return GameStorage.AccessibleFile(file) && GameStorage.FileLength(file) == size; }
+            catch { return false; }
+        }
+        internal static List<GameLanguageOption> FromPacks(IList<LanguagePack> packs)
+        {
+            return packs.Select(p => new GameLanguageOption {
+                Id = p.Language, Label = p.Label, Archive = Path.GetFileName(p.File.Path), Size = p.File.Size }).ToList();
+        }
+        // The in-game VO picker asks Steam which languages are installed. Listing
+        // a00s* files is not enough; publish the installed set through steam_settings
+        // (and steam_emu.ini Language= when the user applies one).
+        internal static void PublishInstalled(string gameRoot, string importRoot, IList<GameLanguageOption> catalogue)
+        {
+            var installed = Installed(gameRoot, catalogue, importRoot);
+            if (installed.Count == 0) return;
+            string folder = Path.Combine(gameRoot, "steam_settings");
+            CheckPath(folder);
+            Directory.CreateDirectory(folder);
+            string names = String.Join("\n", installed.Select(p => p.Id)) + "\n";
+            WriteAtomic(Path.Combine(folder, "supported_languages.txt"), Encoding.ASCII.GetBytes(names));
+            WriteAtomic(Path.Combine(folder, "configs.app.ini"), Encoding.ASCII.GetBytes(
+                "[app::general]\nsupported_languages=" + String.Join(",", installed.Select(p => p.Id)) + "\n"));
+        }
+        static void PatchEmuLanguage(string folder, string language)
+        {
+            if (String.IsNullOrEmpty(folder) || String.IsNullOrEmpty(language)) return;
+            string ini = Path.Combine(folder, "steam_emu.ini");
+            if (!GameStorage.AccessibleFile(ini)) return;
+            string text;
+            using (var input = GameStorage.OpenRead(ini))
+            using (var reader = new StreamReader(input))
+                text = reader.ReadToEnd();
+            var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n').ToList();
+            bool found = false;
+            for (int i = 0; i < lines.Count; i++)
+            {
+                string trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("#") || trimmed.StartsWith(";")) continue;
+                if (!trimmed.StartsWith("Language=", StringComparison.OrdinalIgnoreCase)) continue;
+                lines[i] = "Language=" + language;
+                found = true;
+            }
+            if (!found) lines.Add("Language=" + language);
+            GameStorage.WriteText(ini, String.Join("\r\n", lines));
         }
         internal static string Current(string gameRoot)
         {
@@ -90,7 +148,8 @@ namespace SpiderManInstaller
                 File.Delete(backup);
                 return;
             }
-            if (!Installed(gameRoot, catalogue).Any(p => p.Id == language))
+            string import = ImportRoot();
+            if (!Installed(gameRoot, catalogue, import).Any(p => p.Id == language))
                 throw new IOException("That voice pack is not installed. Import and prepare it first.");
             Directory.CreateDirectory(folder);
             if (!File.Exists(backup))
@@ -100,6 +159,10 @@ namespace SpiderManInstaller
                 WriteAtomic(backup, Encoding.UTF8.GetBytes(BackupHeader + original));
             }
             WriteAtomic(file, Encoding.ASCII.GetBytes(language + "\n"));
+            PublishInstalled(gameRoot, import, catalogue);
+            PatchEmuLanguage(gameRoot, language);
+            PatchEmuLanguage(Path.GetDirectoryName(gameRoot), language);
+            PatchEmuLanguage(import, language);
         }
     }
 }

@@ -40,6 +40,19 @@ namespace SpiderManInstaller
         {
             using (var sha = SHA256.Create()) return Hex(sha.ComputeHash(stream));
         }
+        // Xbox StorageFolder reports a missing file as HRESULT 0x80070002/3, often
+        // wrapped in IOException. Access denied (5) must not look like "not installed".
+        internal static bool MissingFile(Exception error)
+        {
+            for (var e = error; e != null; e = e.InnerException)
+            {
+                if (e is FileNotFoundException || e is DirectoryNotFoundException) return true;
+                if (e.HResult == unchecked((int)0x80070002) || e.HResult == unchecked((int)0x80070003) ||
+                    e.HResult == unchecked((int)0x80070490))
+                    return true;
+            }
+            return false;
+        }
         static string Hex(byte[] bytes) { return BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant(); }
 
         // The whole ZIP is never loaded into memory. ZIP64 entries are streamed.
